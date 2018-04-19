@@ -17,7 +17,7 @@
 
 # (Required)
 # Rule name, must be unique
-name: Example frequency rule
+name: Example frequency rule saved search
 
 # (Required)
 # Type of alert.
@@ -26,7 +26,15 @@ type: frequency
 
 # (Required)
 # Index to search, wildcard supported
-index: sonarkqa-testdata
+saved_source_id: search:939f1b40-3c23-11e8-b680-d944e4d3c256
+
+# (Required)
+# A list of Elasticsearch filters used for find events
+# These filters are joined with AND and nested in a filtered query
+# For more info: http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/query-dsl.html
+#filter:
+#- term:
+#    string_field: "lol"
 
 # (Required, frequency specific)
 # Alert when this many documents matching the query occur within a timeframe
@@ -36,14 +44,6 @@ num_events: 50
 # num_events must occur within this amount of time to trigger an alert
 timeframe:
   hours: 4
-
-# (Required)
-# A list of Elasticsearch filters used for find events
-# These filters are joined with AND and nested in a filtered query
-# For more info: http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/query-dsl.html
-filter:
-- term:
-    string_field: "lol"
 
 # (Required)
 # The alert is use when a match is found

@@ -17,7 +17,8 @@ from util import pretty_ts
 from util import total_seconds
 from util import ts_now
 from util import ts_to_dt
-
+from util import get_index
+from util import get_filter_doc
 
 class RuleType(object):
     """ The base class for a rule type.
@@ -631,9 +632,9 @@ class NewTermsRule(RuleType):
             # Query the entire time range in small chunks
             while tmp_start < end:
                 if self.rules.get('use_strftime_index'):
-                    index = format_index(self.rules['index'], tmp_start, tmp_end)
+                    index = format_index(get_index(self.rules), tmp_start, tmp_end)
                 else:
-                    index = self.rules['index']
+                    index = get_index(self.rules)
                 res = self.es.search(body=query, index=index, ignore_unavailable=True, timeout='50s')
                 if 'aggregations' in res:
                     buckets = res['aggregations']['filtered']['values']['buckets']
@@ -1056,9 +1057,8 @@ class PercentageMatchRule(BaseAggregationRule):
                     'other_bucket': True,
                     'filters': {
                         'match_bucket': {
-                            'bool': {
-                                'must': self.match_bucket_filter
-                            }
+                            # Sonar: Allowed 'must_not' in addition to the default 'must'.
+                            'bool': get_filter_doc(self.match_bucket_filter)
                         }
                     }
                 }

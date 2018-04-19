@@ -15,6 +15,7 @@ import yaml.scanner
 from envparse import Env
 from opsgenie import OpsGenieAlerter
 from staticconf.loader import yaml_loader
+from saved_source_factory import SavedSourceFactory
 from util import dt_to_ts
 from util import dt_to_ts_with_format
 from util import dt_to_unix
@@ -25,12 +26,13 @@ from util import ts_to_dt_with_format
 from util import unix_to_dt
 from util import unixms_to_dt
 
+
 # schema for rule yaml
 rule_schema = jsonschema.Draft4Validator(yaml.load(open(os.path.join(os.path.dirname(__file__), 'schema.yaml'))))
 
 # Required global (config.yaml) and local (rule.yaml)  configuration options
 required_globals = frozenset(['run_every', 'rules_folder', 'es_host', 'es_port', 'writeback_index', 'buffer_time'])
-required_locals = frozenset(['alert', 'type', 'name', 'index'])
+required_locals = frozenset(['alert', 'type', 'name'])
 
 # Settings that can be derived from ENV variables
 env_settings = {'ES_USE_SSL': 'use_ssl',
@@ -201,7 +203,13 @@ def load_options(rule, conf, filename, args=None):
     rule.setdefault('realert', datetime.timedelta(seconds=0))
     rule.setdefault('aggregation', datetime.timedelta(seconds=0))
     rule.setdefault('query_delay', datetime.timedelta(seconds=0))
-    rule.setdefault('timestamp_field', '@timestamp')
+
+    if 'saved_source_id' in rule:
+        saved_source = SavedSourceFactory(rule).create(rule['saved_source_id'])
+        rule.setdefault('timestamp_field', saved_source.get_timestamp_field())
+    else:
+        rule.setdefault('timestamp_field', '@timestamp')
+
     rule.setdefault('filter', [])
     rule.setdefault('timestamp_type', 'iso')
     rule.setdefault('timestamp_format', '%Y-%m-%dT%H:%M:%SZ')
@@ -481,6 +489,10 @@ def load_rules(args):
                 raise EAException('Duplicate rule named %s' % (rule['name']))
         except EAException as e:
             raise EAException('Error loading file %s: %s' % (rule_file, e))
+        except:
+            # Sonar: This also occurs when saved_source_id is associated with a deleted saved source.
+            #   Either way don't stop when parsing a rule failed.
+            print 'Error parsing {0}'.format(rule['name'])
 
         rules.append(rule)
         names.append(rule['name'])

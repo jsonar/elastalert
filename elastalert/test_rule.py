@@ -68,7 +68,7 @@ class MockElastAlerter(object):
         start_time = ts_now() - datetime.timedelta(days=args.days)
         end_time = ts_now()
         ts = conf.get('timestamp_field', '@timestamp')
-        query = ElastAlerter.get_query(conf['filter'], starttime=start_time, endtime=end_time, timestamp_field=ts, five=is_five)
+        query = ElastAlerter.get_query(conf, starttime=start_time, endtime=end_time, timestamp_field=ts, five=is_five)
         index = ElastAlerter.get_index(conf, start_time, end_time)
 
         # Get one document for schema
@@ -89,7 +89,7 @@ class MockElastAlerter(object):
 
         # Get a count of all docs
         count_query = ElastAlerter.get_query(
-            conf['filter'],
+            conf,
             starttime=start_time,
             endtime=end_time,
             timestamp_field=ts,

@@ -2,6 +2,7 @@
 import datetime
 import logging
 import os
+from copy import deepcopy
 
 import dateutil.parser
 import dateutil.tz
@@ -9,6 +10,7 @@ from auth import Auth
 from elasticsearch import RequestsHttpConnection
 from elasticsearch.client import Elasticsearch
 from six import string_types
+
 
 logging.basicConfig()
 elastalert_logger = logging.getLogger('elastalert')
@@ -367,3 +369,40 @@ def parse_deadline(value):
     """Convert ``unit=num`` spec into a ``datetime`` object."""
     duration = parse_duration(value)
     return ts_now() + duration
+
+
+def get_filter_doc(raw_filters):
+    filter_doc = {
+        'must': [],
+        'must_not': []
+    }
+
+    for raw_filter in raw_filters:
+        meta = raw_filter['meta']
+
+        # Don't add this filter if disabled.
+        if meta['disabled']:
+            continue
+
+        query = deepcopy(raw_filter)
+        del query['meta']
+        del query['$state']
+
+        if meta['negate'] is False:
+            filter_doc['must'].append(query)
+        else:
+            filter_doc['must_not'].append(query)
+
+    return filter_doc
+
+
+# Declared here to avoid cyclic dependency.
+from saved_source_factory import SavedSourceFactory
+
+
+def get_index(rule):
+    if 'saved_source_id' in rule:
+        saved_source = SavedSourceFactory(rule).create(rule['saved_source_id'])
+        return saved_source.get_index()
+    else:
+        return rule['index']
