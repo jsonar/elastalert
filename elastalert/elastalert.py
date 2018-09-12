@@ -20,6 +20,7 @@ import kibana
 import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.jobstores.base import JobLookupError
 from alerts import DebugAlerter
 from config import get_rule_hashes
 from config import load_configuration
@@ -1055,7 +1056,7 @@ class ElastAlerter():
                     if 'is_enabled' in new_rule and not new_rule['is_enabled']:
                         continue
                 except EAException as e:
-                    message = 'Could not load rule %s: %s' % (rule_file, e)
+                    message = 'Could not load rule %s: %s. Skipping loading rule changes.' % (rule_file, e)
                     self.handle_error(message)
                     # Want to send email to address specified in the rule. Try and load the YAML to find it.
                     with open(rule_file) as f:
@@ -1150,6 +1151,12 @@ class ElastAlerter():
         if not self.args.pin_rules:
             self.load_rule_changes()
 
+        jobs = self.scheduler.get_jobs()
+        elastalert_logger.debug("Scheduler has {} jobs".format(len(jobs)))
+
+        job_ids = set([job.id for job in jobs])  # job_ids are rule file names.
+        elastalert_logger.debug("Scheduler Job IDS: {}".format(job_ids))
+
         self.delete_rule_jobs()
         self.add_new_rule_jobs()
         self.update_rule_jobs()
@@ -1179,13 +1186,11 @@ class ElastAlerter():
         # Schedule new rules.
         for rule in new_rules:
             rule_id = rule['rule_file']
-            elastalert_logger.info("Scheduler: Adding new job associated with rule {}".format(rule_id))
-
-            def rule_runner(): return self.run_rule_job_runner(rule)
 
             self.scheduler.add_job(
-                rule_runner,
+                self.run_rule_job_runner,
                 CronTrigger.from_crontab(rule['cron']),
+                [rule],
                 id=rule_id)
 
     def update_rule_jobs(self):
@@ -1198,17 +1203,25 @@ class ElastAlerter():
             rule_id = rule['rule_file']
             elastalert_logger.info("Scheduler: Updating job associated with rule {}".format(rule_id))
 
-            def rule_runner(): return self.run_rule_job_runner(rule)
-
-            self.scheduler.modify_job(
-                rule_id,
-                func=rule_runner)
-            self.scheduler.reschedule_job(
-                rule_id,
-                trigger=CronTrigger.from_crontab(rule['cron']))
+            try:
+                self.scheduler.modify_job(
+                    rule_id,
+                    func=self.run_rule_job_runner,
+                    args=[rule])
+                self.scheduler.reschedule_job(
+                    rule_id,
+                    trigger=CronTrigger.from_crontab(rule['cron']))
+            except JobLookupError:
+                elastalert_logger.info("Scheduler: {} have no associated job. Creating one instead.".format(rule_id))
+                self.scheduler.add_job(
+                    self.run_rule_job_runner,
+                    CronTrigger.from_crontab(rule['cron']),
+                    [rule],
+                    id=rule_id)
 
     def shutdown(self):
-        self.scheduler.shutdown()
+        wait = False
+        self.scheduler.shutdown(wait)
 
     def wait_until_responsive(self, timeout, clock=timeit.default_timer):
         """Wait until ElasticSearch becomes responsive (or too much time passes)."""
@@ -1946,7 +1959,7 @@ class ElastAlerter():
         return timestamp + wait, exponent
 
 
-def handle_signal(signal, frame, client):
+def shutdown(client):
     elastalert_logger.info('SIGINT received, stopping ElastAlert...')
     # use os._exit to exit immediately and avoid someone catching SystemExit
 
@@ -1960,7 +1973,8 @@ def main(args=None):
     if not args:
         args = sys.argv[1:]
     client = ElastAlerter(args)
-    signal.signal(signal.SIGINT, lambda: handle_signal(client))
+    def signal_handler(signum, frame): shutdown(client)
+    signal.signal(signal.SIGINT, signal_handler)
     if not client.args.silence:
         client.start()
 
