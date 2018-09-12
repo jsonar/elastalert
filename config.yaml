@@ -41,12 +41,11 @@ buffer_time:
 # The index on es_host which is used for metadata storage
 # This can be a unmapped index, but it is recommended that you run
 # elastalert-create-index to set a mapping
-writeback_index: elastalert_status
+writeback_index: lmrm__sonarg-lmrm__elastalert_status
 
 # If an alert fails for some reason, ElastAlert will retry
 # sending the alert until this time period has elapsed
 alert_time_limit:
   days: 2
 
-from_addr: "joey@jsonar.com"
 disable_rules_on_error: false
