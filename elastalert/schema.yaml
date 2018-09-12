@@ -151,6 +151,9 @@ properties:
 
   # Sonar Optional Settings
   saved_source_id: {type: string}  # Saved Search / Visualization
+  disabled:
+    type: boolean
+    default: false  # Rules are enabled by default.
 
   buffer_time: *timeframe
   query_delay: *timeframe

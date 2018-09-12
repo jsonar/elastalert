@@ -13,4 +13,5 @@ docs/build/
 build/
 
 my_rules
+rules/*.yaml
 *.swp

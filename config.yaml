@@ -49,4 +49,4 @@ alert_time_limit:
   days: 2
 
 from_addr: "joey@jsonar.com"
-disable_rules_on_error: False
+disable_rules_on_error: false
