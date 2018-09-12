@@ -7,7 +7,7 @@ import os
 import dateutil.parser
 import dateutil.tz
 from auth import Auth
-from elasticsearch import RequestsHttpConnection
+from sonar_connection import SonarConnectionRequestsHttpConnection
 from elasticsearch.client import Elasticsearch
 from six import string_types
 
@@ -296,7 +296,7 @@ def elasticsearch_client(conf):
                          use_ssl=es_conn_conf['use_ssl'],
                          verify_certs=es_conn_conf['verify_certs'],
                          ca_certs=es_conn_conf['ca_certs'],
-                         connection_class=RequestsHttpConnection,
+                         connection_class=SonarConnectionRequestsHttpConnection,
                          http_auth=es_conn_conf['http_auth'],
                          timeout=es_conn_conf['es_conn_timeout'],
                          send_get_body_as=es_conn_conf['send_get_body_as'],

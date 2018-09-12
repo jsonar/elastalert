@@ -10,7 +10,7 @@ import time
 import elasticsearch.helpers
 import yaml
 from auth import Auth
-from elasticsearch import RequestsHttpConnection
+from sonar_connection import SonarConnectionRequestsHttpConnection
 from elasticsearch.client import Elasticsearch
 from elasticsearch.client import IndicesClient
 from elasticsearch.exceptions import NotFoundError
@@ -118,7 +118,7 @@ def main():
         timeout=timeout,
         use_ssl=use_ssl,
         verify_certs=verify_certs,
-        connection_class=RequestsHttpConnection,
+        connection_class=SonarConnectionRequestsHttpConnection,
         http_auth=http_auth,
         url_prefix=url_prefix,
         send_get_body_as=send_get_body_as,
