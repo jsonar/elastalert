@@ -3,6 +3,7 @@ import collections
 import datetime
 import logging
 import os
+from copy import deepcopy
 
 import dateutil.parser
 import dateutil.tz
@@ -415,3 +416,42 @@ def resolve_string(string, match, missing_text='<MISSING VALUE>'):
             string = string.replace('{%s}' % e.message, '{_missing_value}')
 
     return string
+
+
+def get_filter_doc(raw_filters):
+    filter_doc = {
+        'must': [],
+        'must_not': []
+    }
+
+    for raw_filter in raw_filters:
+        meta = raw_filter['meta']
+
+        # Don't add this filter if disabled.
+        if meta['disabled']:
+            continue
+
+        query = deepcopy(raw_filter)
+        del query['meta']
+        del query['$state']
+
+        if meta['negate'] is False:
+            filter_doc['must'].append(query)
+        else:
+            filter_doc['must_not'].append(query)
+
+    return filter_doc
+
+
+# Declared here to avoid cyclic dependency.
+from saved_source_factory import SavedSourceFactory
+
+
+def get_index(rule):
+    if 'saved_source_id' in rule:
+        saved_source = SavedSourceFactory(rule).create(rule['saved_source_id'])
+        return saved_source.get_index()
+    elif 'index' in rule:
+        return rule['index']
+    else:
+        raise EAException('Invalid rule, missing saved_source_id or index field.')
