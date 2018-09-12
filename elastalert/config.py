@@ -498,6 +498,7 @@ def load_rules(args):
             # Sonar: This also occurs when saved_source_id is associated with a deleted saved source.
             #   Either way don't stop when parsing a rule failed.
             print 'Error parsing {0}'.format(rule['name'])
+            continue
 
         rules.append(rule)
         names.append(rule['name'])

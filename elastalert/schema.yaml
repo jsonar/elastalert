@@ -154,6 +154,9 @@ properties:
   disabled:
     type: boolean
     default: false  # Rules are enabled by default.
+  cron:
+    type: string
+    default: "* * * * *"
 
   buffer_time: *timeframe
   query_delay: *timeframe

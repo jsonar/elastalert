@@ -49,3 +49,6 @@ alert_time_limit:
   days: 2
 
 disable_rules_on_error: false
+
+realert:
+  minutes: 0
