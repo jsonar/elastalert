@@ -1,0 +1,6 @@
+alert: email
+email:
+  - joey@jsonar.com
+name: Test Any
+saved_source_id: 'search:17a500b0-3e9c-11e8-86cb-550185e26ed7'
+type: any
