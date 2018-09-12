@@ -7,7 +7,7 @@ es_port: 8088
 
 # This is the folder that contains the rule yaml files
 # Any .yaml file will be loaded as a rule
-rules_folder: /usr/share/sonaralerts/rules
+rules_folder: rules
 
 # How often ElastAlert will query elasticsearch
 # The unit can be anything from weeks to seconds

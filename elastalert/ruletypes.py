@@ -122,6 +122,18 @@ class CompareRule(RuleType):
             if self.compare(event):
                 self.add_match(event)
 
+    @staticmethod
+    def to_numeric(num_str):
+        try:
+            return int(num_str)
+        except ValueError:
+            return float(num_str)
+
+    @staticmethod
+    def extract_digits_from_list(lst):
+        numeric_str_array = list(filter(lambda x: str(x).isdigit(), lst))
+        return list(map(lambda x: CompareRule.to_numeric(x), numeric_str_array))
+
 
 class BlacklistRule(CompareRule):
     """ A CompareRule where the compare function checks a given key against a blacklist """
@@ -135,6 +147,18 @@ class BlacklistRule(CompareRule):
         term = lookup_es_key(event, self.rules['compare_key'])
         if term in self.rules['blacklist']:
             return True
+
+        # Sonar: Attempt match numbers, if any in the blacklist.
+        try:
+            blacklist_numerics = self.extract_digits_from_list(self.rules['blacklist'])
+            if term in blacklist_numerics:
+                return True
+        except:
+            # If for some reason, we fail converting string to number despite filtering out strings that are digit,
+            # just return false.
+            elastalert_logger.warn("Failed extracting digits from list.")
+            return False
+
         return False
 
 
@@ -152,6 +176,18 @@ class WhitelistRule(CompareRule):
             return not self.rules['ignore_null']
         if term not in self.rules['whitelist']:
             return True
+
+        # Sonar: Attempt match numbers, if any in the blacklist.
+        try:
+            whitelist_numerics = self.extract_digits_from_list(self.rules['whitelist'])
+            if term not in whitelist_numerics:
+                return True
+        except:
+            # If for some reason, we fail converting string to number despite filtering out strings that are digit,
+            # just return false.
+            elastalert_logger.warn("Failed extracting digits from list.")
+            return False
+
         return False
 
 
