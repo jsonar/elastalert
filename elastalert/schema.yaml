@@ -25,7 +25,7 @@ definitions:
 
   filter: &filter {}
 
-required: [type, index, alert]
+required: [type, alert]
 type: object
 
 ### Rule Types section
@@ -148,6 +148,12 @@ properties:
   aggregation: *timeframe
   realert: *timeframe
   exponential_realert: *timeframe
+
+  # Sonar Optional Settings
+  saved_source_id: {type: string}  # Saved Search / Visualization
+  disabled:
+    type: boolean
+    default: false  # Rules are enabled by default.
 
   buffer_time: *timeframe
   query_delay: *timeframe

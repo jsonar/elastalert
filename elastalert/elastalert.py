@@ -1161,6 +1161,11 @@ class ElastAlerter():
         next_run = datetime.datetime.utcnow() + self.run_every
 
         for rule in self.rules:
+            # Sonar: An option to enable/disable rule.
+            if rule.get('disabled'):
+                elastalert_logger.info("%s is disabled and will be skipped." % (rule['name']))
+                continue
+
             # Set endtime based on the rule's delay
             delay = rule.get('query_delay')
             if hasattr(self.args, 'end') and self.args.end:
