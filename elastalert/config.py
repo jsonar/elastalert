@@ -489,13 +489,15 @@ def load_rules(args):
             if 'is_enabled' in rule and not rule['is_enabled']:
                 continue
             if rule['name'] in names:
-                raise EAException('Duplicate rule named %s' % (rule['name']))
+                logging.error('Duplicate rule named %s. Skipping rule.' % (rule['name']))
+                continue
         except EAException as e:
-            raise EAException('Error loading file %s: %s' % (rule_file, e))
+            logging.error('Error loading file %s: %s. Skipping rule.' % (rule_file, e))
+            continue
         except:
             # Sonar: This also occurs when saved_source_id is associated with a deleted saved source.
             #   Either way don't stop when parsing a rule failed.
-            print 'Error parsing {0}'.format(rule['name'])
+            print 'Error parsing {0}. Skipping rule.'.format(rule_file)
             continue
 
         rules.append(rule)
