@@ -9,6 +9,7 @@ import yaml
 from elasticsearch.client import Elasticsearch
 
 from elastalert.kibana import filters_from_dashboard
+from elastalert.sonar_connection import SonarConnectionUrllib3HttpConnection
 
 
 def main():
@@ -16,7 +17,11 @@ def main():
     es_port = raw_input("Elasticsearch port: ")
     db_name = raw_input("Dashboard name: ")
     send_get_body_as = raw_input("Method for querying Elasticsearch[GET]: ") or 'GET'
-    es = Elasticsearch(host=es_host, port=es_port, send_get_body_as=send_get_body_as)
+    es = Elasticsearch(
+        connection_class=SonarConnectionUrllib3HttpConnection,  # Sonar: Insert sonarg-user in header.
+        host=es_host,
+        port=es_port,
+        send_get_body_as=send_get_body_as)
     query = {'query': {'term': {'_id': db_name}}}
     res = es.search(index='kibana-int', doc_type='dashboard', body=query, _source_include=['dashboard'])
     if not res['hits']['hits']:
