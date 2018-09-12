@@ -404,5 +404,7 @@ def get_index(rule):
     if 'saved_source_id' in rule:
         saved_source = SavedSourceFactory(rule).create(rule['saved_source_id'])
         return saved_source.get_index()
-    else:
+    elif 'index' in rule:
         return rule['index']
+    else:
+        raise EAException('Invalid rule, missing saved_source_id or index field.')

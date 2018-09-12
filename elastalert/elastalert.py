@@ -229,11 +229,10 @@ class ElastAlerter():
                   five=False):
         if 'saved_source_id' in rule:
             return ElastAlerter.get_saved_source_query(rule, rule['saved_source_id'], starttime, endtime, sort, timestamp_field, to_ts_func, desc, five)
-        elif 'filter' in rule:   # TODO: More checks here to validate that the rule is a filter.
+        elif 'index' in rule and 'filter' in rule:
             return ElastAlerter.get_filtered_query(rule['filter'], starttime, endtime, sort, timestamp_field, to_ts_func, desc, five)
         else:
-            # TODO: Raise an exception.
-            pass
+            raise EAException('Invalid rule, missing saved_source_id or index field.')
 
     @staticmethod
     def get_filtered_query(filters, starttime=None, endtime=None, sort=True, timestamp_field='@timestamp', to_ts_func=dt_to_ts, desc=False,
@@ -1071,7 +1070,7 @@ class ElastAlerter():
                 except:
                     # Sonar: This also occurs when saved_source_id is associated with a deleted saved source.
                     #   Either way don't stop when parsing a rule failed.
-                    print 'Error parsing {0}. Skipping loading rule changes.'.format(rule['name'])
+                    print 'Error parsing {0}. Skipping loading rule changes.'.format(rule_file)
                     continue
                 elastalert_logger.info("Reloading configuration for rule %s" % (rule_file))
 
