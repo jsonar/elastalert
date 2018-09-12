@@ -39,7 +39,8 @@ env_settings = {'ES_USE_SSL': 'use_ssl',
                 'ES_PASSWORD': 'es_password',
                 'ES_USERNAME': 'es_username',
                 'ES_HOST': 'es_host',
-                'ES_PORT': 'es_port'}
+                'ES_PORT': 'es_port',
+                'RULES_FOLDER': 'rules_folder'}
 
 env = Env(ES_USE_SSL=bool)
 
