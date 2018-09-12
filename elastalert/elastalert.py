@@ -862,7 +862,7 @@ class ElastAlerter():
         logging.debug("Enhanced filter with {} terms: {}".format(listname, str(query_str_filter)))
 
     def run_rule_job_runner(self, rule):
-        elastalert_logger.info('Scheduler: Running rule %s.'.format(rule['name']))
+        elastalert_logger.info("Scheduler: Running rule {0}.".format(rule['name']))
 
         # Sonar: An option to enable/disable rule.
         if rule.get('disabled'):
@@ -1128,6 +1128,11 @@ class ElastAlerter():
 
                     self.send_notification_email(exception=e, rule=rule_yaml)
                     continue
+                except:
+                    # Sonar: This also occurs when saved_source_id is associated with a deleted saved source.
+                    #   Either way don't stop when parsing a rule failed.
+                    print 'Error parsing {0}. Skipping loading rule changes.'.format(rule['name'])
+                    continue
                 elastalert_logger.info("Reloading configuration for rule %s" % (rule_file))
 
                 # Re-enable if rule had been disabled
@@ -1152,10 +1157,16 @@ class ElastAlerter():
                     if 'is_enabled' in new_rule and not new_rule['is_enabled']:
                         continue
                     if new_rule['name'] in [rule['name'] for rule in self.rules]:
-                        raise EAException("A rule with the name %s already exists" % (new_rule['name']))
+                        elastalert_logger.error("A rule with the name %s already exists. Skipping Rule" % (new_rule['name']))
+                        continue
                 except EAException as e:
                     self.handle_error('Could not load rule %s: %s' % (rule_file, e))
                     self.send_notification_email(exception=e, rule_file=rule_file)
+                    continue
+                except:
+                    # Sonar: This also occurs when saved_source_id is associated with a deleted saved source.
+                    #   Either way don't stop when parsing a rule failed.
+                    print 'Error parsing {0}. Skipping rule.'.format(rule_file)
                     continue
                 if self.init_rule(new_rule):
                     elastalert_logger.info('Loaded new rule %s' % (rule_file))
