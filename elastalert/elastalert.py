@@ -18,6 +18,8 @@ from socket import error
 import dateutil.tz
 import kibana
 import yaml
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from alerts import DebugAlerter
 from config import get_rule_hashes
 from config import load_configuration
@@ -157,6 +159,11 @@ class ElastAlerter():
 
         self.writeback_es = elasticsearch_client(self.conf)
         self._es_version = None
+
+        self.scheduler = BackgroundScheduler(job_defaults={
+            'coalesce': True,  # Only run the job once when several instances are due.
+            'max_instances': 1
+        })
 
         remove = []
         for rule in self.rules:
@@ -804,6 +811,39 @@ class ElastAlerter():
 
         return key_value
 
+    def run_rule_job_runner(self, rule):
+        elastalert_logger.info('Scheduler: Running rule %s.'.format(rule['name']))
+
+        # Sonar: An option to enable/disable rule.
+        if rule.get('disabled'):
+            elastalert_logger.info("%s is disabled and will be skipped." % (rule['name']))
+            return
+
+        # Set endtime based on the rule's delay
+        delay = rule.get('query_delay')
+        if hasattr(self.args, 'end') and self.args.end:
+            endtime = ts_to_dt(self.args.end)
+        elif delay:
+            endtime = ts_now() - delay
+        else:
+            endtime = ts_now()
+
+        try:
+            num_matches = self.run_rule(rule, endtime, self.starttime)
+        except EAException as e:
+            self.handle_error("Error running rule %s: %s" % (rule['name'], e), {'rule': rule['name']})
+        except Exception as e:
+            self.handle_uncaught_exception(e, rule)
+        else:
+            old_starttime = pretty_ts(rule.get('original_starttime'), rule.get('use_local_time'))
+            elastalert_logger.info("Ran %s from %s to %s: %s query hits (%s already seen), %s matches,"
+                                   " %s alerts sent" % (
+                                   rule['name'], old_starttime, pretty_ts(endtime, rule.get('use_local_time')),
+                                   self.num_hits, self.num_dupes, num_matches, self.alerts_sent))
+            self.alerts_sent = 0
+
+        self.remove_old_events(rule)
+
     def run_rule(self, rule, endtime, starttime=None):
         """ Run a rule for a given time period, including querying and alerting on results.
 
@@ -1041,6 +1081,7 @@ class ElastAlerter():
                 new_rule = self.init_rule(new_rule, False)
                 self.rules = [rule for rule in self.rules if rule['rule_file'] != rule_file]
                 if new_rule:
+                    new_rule['state'] = 'modified'
                     self.rules.append(new_rule)
 
         # Load new rules
@@ -1058,6 +1099,7 @@ class ElastAlerter():
                     continue
                 if self.init_rule(new_rule):
                     elastalert_logger.info('Loaded new rule %s' % (rule_file))
+                    new_rule['state'] = 'new'
                     self.rules.append(new_rule)
 
         self.rule_hashes = new_rule_hashes
@@ -1076,24 +1118,87 @@ class ElastAlerter():
         self.wait_until_responsive(timeout=self.args.timeout)
         self.running = True
         elastalert_logger.info("Starting up")
+
+        self.scheduler.start()
+
         while self.running:
             next_run = datetime.datetime.utcnow() + self.run_every
 
-            self.run_all_rules()
-
-            # Quit after end_time has been reached
-            if self.args.end:
-                endtime = ts_to_dt(self.args.end)
-
-                if next_run.replace(tzinfo=dateutil.tz.tzutc()) > endtime:
-                    exit(0)
-
-            if next_run < datetime.datetime.utcnow():
-                continue
+            self.manage_rule_jobs()
 
             # Wait before querying again
             sleep_duration = total_seconds(next_run - datetime.datetime.utcnow())
             self.sleep_for(sleep_duration)
+
+    def manage_rule_jobs(self):
+        """
+        Synchronize jobs and their associated rules.
+        - Adds jobs from new rules.
+        - Delete jobs associated to deleted rules.
+        - Update jobs associated to updated rules.
+        """
+        if not self.args.pin_rules:
+            self.load_rule_changes()
+
+        self.delete_rule_jobs()
+        self.add_new_rule_jobs()
+        self.update_rule_jobs()
+
+        # Reset rule state.
+        for rule in self.rules:
+            rule['state'] = 'stable'
+
+    def delete_rule_jobs(self):
+        """
+        Delete jobs associated to deleted rule.s
+        """
+        rule_file_names = set([rule['rule_file'] for rule in self.rules])
+        # Delete remove rules.
+        jobs = self.scheduler.get_jobs()
+        job_ids = set([job.id for job in jobs])  # job_ids are rule file names.
+        deleted_job_ids = job_ids.difference(rule_file_names)
+        for job_id in deleted_job_ids:
+            elastalert_logger.info("Scheduler: Deleting job associated with rule {}".format(job_id))
+            self.scheduler.remove_job(job_id)
+
+    def add_new_rule_jobs(self):
+        """
+        Add jobs associated to new rules.
+        """
+        new_rules = [rule for rule in self.rules if ('state' not in rule or rule['state'] is 'new')]
+        # Schedule new rules.
+        for rule in new_rules:
+            rule_id = rule['rule_file']
+            elastalert_logger.info("Scheduler: Adding new job associated with rule {}".format(rule_id))
+
+            def rule_runner(): return self.run_rule_job_runner(rule)
+
+            self.scheduler.add_job(
+                rule_runner,
+                CronTrigger.from_crontab(rule['cron']),
+                id=rule_id)
+
+    def update_rule_jobs(self):
+        """
+        Update jobs associated to modified rules.
+        """
+        modified_rules = [rule for rule in self.rules if ('state' in rule and rule['state'] is 'modified')]
+        # Modifying jobs associated to modified rules.
+        for rule in modified_rules:
+            rule_id = rule['rule_file']
+            elastalert_logger.info("Scheduler: Updating job associated with rule {}".format(rule_id))
+
+            def rule_runner(): return self.run_rule_job_runner(rule)
+
+            self.scheduler.modify_job(
+                rule_id,
+                func=rule_runner)
+            self.scheduler.reschedule_job(
+                rule_id,
+                trigger=CronTrigger.from_crontab(rule['cron']))
+
+    def shutdown(self):
+        self.scheduler.shutdown()
 
     def wait_until_responsive(self, timeout, clock=timeit.default_timer):
         """Wait until ElasticSearch becomes responsive (or too much time passes)."""
@@ -1128,60 +1233,6 @@ class ElastAlerter():
                 self.conf['es_port'],
             )
         exit(1)
-
-    def run_all_rules(self):
-        """ Run each rule one time """
-        self.send_pending_alerts()
-
-        next_run = datetime.datetime.utcnow() + self.run_every
-
-        for rule in self.rules:
-            # Sonar: An option to enable/disable rule.
-            if rule.get('disabled'):
-                elastalert_logger.info("%s is disabled and will be skipped." % (rule['name']))
-                continue
-
-            # Set endtime based on the rule's delay
-            delay = rule.get('query_delay')
-            if hasattr(self.args, 'end') and self.args.end:
-                endtime = ts_to_dt(self.args.end)
-            elif delay:
-                endtime = ts_now() - delay
-            else:
-                endtime = ts_now()
-
-            try:
-                num_matches = self.run_rule(rule, endtime, self.starttime)
-            except EAException as e:
-                self.handle_error("Error running rule %s: %s" % (rule['name'], e), {'rule': rule['name']})
-            except Exception as e:
-                self.handle_uncaught_exception(e, rule)
-            else:
-                old_starttime = pretty_ts(rule.get('original_starttime'), rule.get('use_local_time'))
-                elastalert_logger.info("Ran %s from %s to %s: %s query hits (%s already seen), %s matches,"
-                                       " %s alerts sent" % (rule['name'], old_starttime, pretty_ts(endtime, rule.get('use_local_time')),
-                                                            self.num_hits, self.num_dupes, num_matches, self.alerts_sent))
-                self.alerts_sent = 0
-
-                if next_run < datetime.datetime.utcnow():
-                    # We were processing for longer than our refresh interval
-                    # This can happen if --start was specified with a large time period
-                    # or if we are running too slow to process events in real time.
-                    logging.warning(
-                        "Querying from %s to %s took longer than %s!" % (
-                            old_starttime,
-                            pretty_ts(endtime, rule.get('use_local_time')),
-                            self.run_every
-                        )
-                    )
-
-            self.remove_old_events(rule)
-
-        # Only force starttime once
-        self.starttime = None
-
-        if not self.args.pin_rules:
-            self.load_rule_changes()
 
     def stop(self):
         """ Stop an ElastAlert runner that's been started """
@@ -1885,17 +1936,21 @@ class ElastAlerter():
         return timestamp + wait, exponent
 
 
-def handle_signal(signal, frame):
+def handle_signal(signal, frame, client):
     elastalert_logger.info('SIGINT received, stopping ElastAlert...')
     # use os._exit to exit immediately and avoid someone catching SystemExit
+
+    elastalert_logger.info('Shutting Down ElastAlert Scheduler. Waiting for ongoing tasks to finish.')
+    client.shutdown()
+
     os._exit(0)
 
 
 def main(args=None):
-    signal.signal(signal.SIGINT, handle_signal)
     if not args:
         args = sys.argv[1:]
     client = ElastAlerter(args)
+    signal.signal(signal.SIGINT, lambda: handle_signal(client))
     if not client.args.silence:
         client.start()
 
