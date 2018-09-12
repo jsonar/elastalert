@@ -42,22 +42,3 @@ class SavedSourceFactory:
         :return:
         """
         return elasticsearch_client(conf)
-
-# TODO(joey): Sandbox area. Delete when done with SES-208
-# conf = {
-#     'rules_folder': 'rules',
-#     'run_every': datetime.timedelta(minutes=10),
-#     'buffer_time': datetime.timedelta(minutes=5),
-#     'alert_time_limit': datetime.timedelta(hours=24),
-#     'es_host': 'localhost',
-#     'es_port': 8088,
-#     'writeback_index': 'wb',
-#     'max_query_size': 10000,
-#     'old_query_limit': datetime.timedelta(weeks=1),
-#     'disable_rules_on_error': False,
-#     'scroll_keepalive': '30s'
-# }
-# id = "visualization:4c6af1b0-3da7-11e8-b895-d1a4c996486c"
-# saved_search = SavedSourceFactory(conf).create(id)
-# print saved_search.get_timestamp_field()
-# #print json.dumps(saved_search.get_aggs())
