@@ -3,6 +3,8 @@ import copy
 import datetime
 import json
 import logging
+import logging.handlers
+import os
 import subprocess
 import sys
 import time
@@ -28,6 +30,7 @@ from texttable import Texttable
 from twilio.base.exceptions import TwilioRestException
 from twilio.rest import Client as TwilioClient
 from util import EAException
+from util import elasticsearch_client
 from util import elastalert_logger
 from util import lookup_es_key
 from util import pretty_ts
@@ -152,6 +155,21 @@ class JiraFormattedMatchString(BasicMatchString):
         json_blob = self._pretty_print_as_json(match_items)
         preformatted_text = u'{{code}}{0}{{code}}'.format(json_blob)
         self.text += preformatted_text
+
+
+class SonarFormattedMatchString:
+    def __init__(self, rule, match, match_time):
+        self.rule = rule
+        self.match = match
+        self.match_time = match_time
+
+    def __str__(self):
+        text = "Rule \"{}\" generated an alert at {}.".format(self.rule['name'], self.match_time)
+
+        if 'num_hits' in self.match:
+            text += " This alert contains {} document hit(s).".format(self.match['num_hits'])
+
+        return text
 
 
 class Alerter(object):
@@ -380,6 +398,63 @@ class DebugAlerter(Alerter):
 
     def get_info(self):
         return {'type': 'debug'}
+
+
+class SyslogAlerter(Alerter):
+    """Sends payloads to sonar gateway."""
+
+    def __init__(self, *args):
+        super(SyslogAlerter, self).__init__(*args)
+        self.logger = logging.getLogger('SonarKAlertsLogger')
+        self.logger.setLevel(logging.INFO)
+
+        syslog_host = os.environ.get('plugins.alerts.syslog.host', 'localhost')
+        syslog_port = int(os.environ.get('plugins.alerts.syslog.port', 514))
+        self.logger_handler = logging.handlers.SysLogHandler(address=(syslog_host, syslog_port))
+        self.logger.addHandler(self.logger_handler)
+
+    def alert(self, matches, alert_time):
+        for match in matches:
+            self.logger.info(str(SonarFormattedMatchString(self.rule, match, alert_time)))
+            elastalert_logger.info('Alert sent to Syslog')
+
+    def get_info(self):
+        return {
+            'type': 'syslog'
+        }
+
+
+class SonarDispatcherAlerter(Alerter):
+    """Sends an email alert through sonardispatcher."""
+    required_options = frozenset(['email'])
+
+    def __init__(self, *args):
+        super(SonarDispatcherAlerter, self).__init__(*args)
+        # Convert email to a list if it isn't already
+        if isinstance(self.rule['email'], basestring):
+            self.rule['email'] = [self.rule['email']]
+        self.es_client = elasticsearch_client(self.rule)
+
+    def alert(self, matches, alert_time):
+        for match in matches:
+            self.es_client.index(
+                'lmrm__scheduler-lmrm__dispatched_jobs',
+                '_doc',
+                {
+                    'name': 'sonark_alerts',
+                    'emails': self.rule['email'],
+                    'type': 'send_email',
+                    'subject': "SonarK Alert generated message.",
+                    'email_content': str(SonarFormattedMatchString(self.rule, match, alert_time))
+                })
+
+        elastalert_logger.info('Alert sent to SonarDispatcher')
+
+    def get_info(self):
+        return {
+            'type': 'sonardispatcher',
+            'recipients': self.rule['email']
+        }
 
 
 class EmailAlerter(Alerter):

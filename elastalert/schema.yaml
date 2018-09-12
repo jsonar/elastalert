@@ -196,6 +196,9 @@ properties:
   pipe_match_json: {type: boolean}
   fail_on_non_zero_exit: {type: boolean}
 
+  ### Sonardispatcher, SonarK custom alert.
+  email: *arrayOfString
+
   ### Email
   email: *arrayOfString
   email_reply_to: {type: string}

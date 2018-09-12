@@ -1407,7 +1407,7 @@ class ElastAlerter():
         for alert in rule['alert']:
             alert.pipeline = alert_pipeline
             try:
-                alert.alert(matches)
+                alert.alert(matches, alert_time)
             except EAException as e:
                 self.handle_error('Error while running alert %s: %s' % (alert.get_info()['type'], e), {'rule': rule['name']})
                 alert_exception = str(e)
@@ -1419,6 +1419,7 @@ class ElastAlerter():
         agg_id = None
         for match in matches:
             alert_body = self.get_alert_body(match, rule, alert_sent, alert_time, alert_exception)
+
             # Set all matches to aggregate together
             if agg_id:
                 alert_body['aggregate_id'] = agg_id
