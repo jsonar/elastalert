@@ -1027,17 +1027,18 @@ class ElastAlerter():
         self.enhance_filter(new_rule)
 
         # Change top_count_keys to .raw
-        if 'top_count_keys' in new_rule and new_rule.get('raw_count_keys', True):
-            if self.string_multi_field_name:
-                string_multi_field_name = self.string_multi_field_name
-            elif self.is_atleastfive():
-                string_multi_field_name = '.keyword'
-            else:
-                string_multi_field_name = '.raw'
-
-            for i, key in enumerate(new_rule['top_count_keys']):
-                if not key.endswith(string_multi_field_name):
-                    new_rule['top_count_keys'][i] += string_multi_field_name
+        # SonarK: Irrelevant for us since we don't recognize .keyword as a field postfix.
+        # if 'top_count_keys' in new_rule and new_rule.get('raw_count_keys', True):
+        #     if self.string_multi_field_name:
+        #         string_multi_field_name = self.string_multi_field_name
+        #     elif self.is_atleastfive():
+        #         string_multi_field_name = '.keyword'
+        #     else:
+        #         string_multi_field_name = '.raw'
+        #
+        #     for i, key in enumerate(new_rule['top_count_keys']):
+        #         if not key.endswith(string_multi_field_name):
+        #             new_rule['top_count_keys'][i] += string_multi_field_name
 
         if 'download_dashboard' in new_rule['filter']:
             # Download filters from Kibana and set the rules filters to them

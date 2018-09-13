@@ -260,12 +260,13 @@ def cronite_datetime_to_timestamp(self, d):
 
 
 def add_raw_postfix(field, is_five_or_above):
-    if is_five_or_above:
-        end = '.keyword'
-    else:
-        end = '.raw'
-    if not field.endswith(end):
-        field += end
+    # Sonar: We don't support field postfix.
+    # if is_five_or_above:
+    #     end = '.keyword'
+    # else:
+    #     end = '.raw'
+    # if not field.endswith(end):
+    #     field += end
     return field
 
 

@@ -17,6 +17,7 @@ from util import pretty_ts
 from util import total_seconds
 from util import ts_now
 from util import ts_to_dt
+from util import get_index
 
 
 class RuleType(object):
@@ -707,9 +708,9 @@ class NewTermsRule(RuleType):
             # Query the entire time range in small chunks
             while tmp_start < end:
                 if self.rules.get('use_strftime_index'):
-                    index = format_index(self.rules['index'], tmp_start, tmp_end)
+                    index = format_index(get_index(self.rules), tmp_start, tmp_end)
                 else:
-                    index = self.rules['index']
+                    index = get_index(self.rules)
                 res = self.es.search(body=query, index=index, ignore_unavailable=True, timeout='50s')
                 if 'aggregations' in res:
                     buckets = res['aggregations']['filtered']['values']['buckets']
