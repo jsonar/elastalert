@@ -453,7 +453,6 @@ class ElastAlerter():
             self.num_hits,
             len(hits)
         )
-        elastalert_logger.info("Max query size {}".format(rule.get('max_query_size', self.max_query_size)))
         if self.total_hits > rule.get('max_query_size', self.max_query_size):
             elastalert_logger.info("%s (scrolling..)" % status_log)
             rule['scroll_id'] = res['_scroll_id']
