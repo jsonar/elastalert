@@ -52,5 +52,3 @@ disable_rules_on_error: false
 
 realert:
   minutes: 0
-
-max_query_size: Infinity
