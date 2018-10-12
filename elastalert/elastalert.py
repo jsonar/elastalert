@@ -21,6 +21,7 @@ import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.jobstores.base import JobLookupError
+from apscheduler.executors.pool import ThreadPoolExecutor
 from alerts import DebugAlerter
 from config import get_rule_hashes
 from config import load_configuration
@@ -163,7 +164,10 @@ class ElastAlerter():
 
         self.scheduler = BackgroundScheduler(job_defaults={
             'coalesce': True,  # Only run the job once when several instances are due.
-            'max_instances': 1
+            'max_instances': 1,
+            'misfire_grace_time': 3600  # Allow job to start even if they are delayed by 3600s (1hr).
+        }, executors={
+            'default': ThreadPoolExecutor(1)  # Force synchronous operations.
         })
 
         remove = []
