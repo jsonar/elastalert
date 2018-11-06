@@ -1135,13 +1135,25 @@ class PercentageMatchRule(BaseAggregationRule):
                     'filters': {
                         'match_bucket': {
                             'bool': {
-                                'must': self.match_bucket_filter
+                                'must': self.remove_meta_from_filters(self.match_bucket_filter)
                             }
                         }
                     }
                 }
             }
         }
+
+    @staticmethod
+    def remove_meta_from_filters(filters):
+        match_bucket_filter_without_meta = []
+        for filter_doc in copy.deepcopy(filters):
+            if 'meta' in filter_doc:
+                del filter_doc['meta']
+            if '$state' in filter:
+                del filter_doc['$state']
+            match_bucket_filter_without_meta.append(filter_doc)
+        return match_bucket_filter_without_meta
+
 
     def check_matches(self, timestamp, query_key, aggregation_data):
         match_bucket_count = aggregation_data['percentage_match_aggs']['buckets']['match_bucket']['doc_count']
