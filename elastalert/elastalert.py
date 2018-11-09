@@ -793,16 +793,28 @@ class ElastAlerter():
                 else:
                     rule['bucket_offset_delta'] = offset
 
-    def get_segment_size(self, rule):
+    def get_segment_size(self, rule, starttime=datetime.datetime.utcnow()):
         """ The segment size is either buffer_size for queries which can overlap or run_every for queries
         which must be strictly separate. This mimicks the query size for when ElastAlert is running continuously. """
         if not rule.get('use_count_query') and not rule.get('use_terms_query') and not rule.get('aggregation_query_element'):
             return rule.get('buffer_time', self.buffer_time)
         elif rule.get('aggregation_query_element'):
             if rule.get('use_run_every_query_size'):
-                return self.run_every
+                return self.get_run_every_segment_size(rule, starttime)
             else:
                 return rule.get('buffer_time', self.buffer_time)
+        else:
+            return self.get_run_every_segment_size(rule, starttime)
+
+    def get_run_every_segment_size(self, rule, starttime=datetime.datetime.utcnow()):
+        if 'cron' in rule:
+            cron = croniter(rule.get('cron'), starttime)
+            next_run = cron.get_next(datetime.datetime)
+
+            cron = croniter(rule['cron'], next_run)
+            next_next_run = cron.get_next(datetime.datetime)
+
+            return next_next_run - next_run
         else:
             return self.run_every
 
@@ -938,6 +950,7 @@ class ElastAlerter():
         tmp_endtime = rule['starttime']
 
         while endtime - rule['starttime'] > segment_size:
+            elastalert_logger.info("Segment Size: {}".format(segment_size))
             tmp_endtime = tmp_endtime + segment_size
             if not self.run_query(rule, rule['starttime'], tmp_endtime):
                 return 0
@@ -945,6 +958,9 @@ class ElastAlerter():
             self.num_hits = 0
             rule['starttime'] = tmp_endtime
             rule['type'].garbage_collect(tmp_endtime)
+
+            # Update segment_size since cron segment_size could vary.
+            segment_size = self.get_segment_size(rule, rule['starttime'])
 
         if rule.get('aggregation_query_element'):
             if endtime - tmp_endtime == segment_size:
