@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import argparse
-import copy
 import datetime
 import json
 import logging
@@ -18,6 +17,7 @@ from socket import error
 import dateutil.tz
 import kibana
 import yaml
+from threadsafe_copy import ThreadsafeCopy as copy
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.jobstores.base import JobLookupError
@@ -650,7 +650,7 @@ class ElastAlerter():
         Returns True on success and False on failure.
         """
         if start is None:
-            start = self.get_index_start(rule['index'])
+            start = self.get_index_start(get_index_util(rule))
         if end is None:
             end = ts_now()
 
