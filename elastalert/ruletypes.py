@@ -574,7 +574,8 @@ class FlatlineRule(FrequencyRule):
             self.first_event[key] = most_recent_ts
 
         # Don't check for matches until timeframe has elapsed
-        if most_recent_ts - self.first_event[key] < self.rules['timeframe']:
+        first_query_ts = self.first_event[key] - self.rules['timeframe']
+        if most_recent_ts - first_query_ts <= self.rules['timeframe']:
             return
 
         # Match if, after removing old events, we hit num_events
@@ -1149,7 +1150,7 @@ class PercentageMatchRule(BaseAggregationRule):
         for filter_doc in copy.deepcopy(filters):
             if 'meta' in filter_doc:
                 del filter_doc['meta']
-            if '$state' in filter:
+            if '$state' in filter_doc:
                 del filter_doc['$state']
             match_bucket_filter_without_meta.append(filter_doc)
         return match_bucket_filter_without_meta

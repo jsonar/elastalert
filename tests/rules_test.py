@@ -839,7 +839,8 @@ def test_flatline_count():
     rule.add_count_data({ts_to_dt('2014-10-11T00:00:15'): 0})
     rule.garbage_collect(ts_to_dt('2014-10-11T00:00:20'))
     assert len(rule.matches) == 0
-    rule.add_count_data({ts_to_dt('2014-10-11T00:00:35'): 0})
+    # Should be sufficient to signal a 30s timeframe has elapsed.
+    rule.add_count_data({ts_to_dt('2014-10-11T00:00:30'): 0})
     assert len(rule.matches) == 1
 
 
@@ -866,7 +867,7 @@ def test_flatline_query_key():
     rule.add_data([create_event(ts_to_dt('2014-09-26T12:00:20Z'), qk='key3')])
 
     # key1 and key2 have not had any new data, so they will trigger the flatline alert
-    timestamp = '2014-09-26T12:00:45Z'
+    timestamp = '2014-09-26T12:00:30Z'  # Should be sufficient to signal a 30s timeframe has elapsed.
     rule.garbage_collect(ts_to_dt(timestamp))
     assert len(rule.matches) == 2
     assert set(['key1', 'key2']) == set([m['key'] for m in rule.matches if m['@timestamp'] == timestamp])
