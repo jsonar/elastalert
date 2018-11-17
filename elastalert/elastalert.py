@@ -773,8 +773,8 @@ class ElastAlerter():
     def adjust_start_time_for_overlapping_agg_query(self, rule):
         if rule.get('aggregation_query_element'):
             if rule.get('allow_buffer_time_overlap') and not rule.get('use_run_every_query_size') and (
-                    rule['buffer_time'] > rule['run_every']):
-                rule['starttime'] = rule['starttime'] - (rule['buffer_time'] - rule['run_every'])
+                    rule['buffer_time'] > self.get_run_every_segment_size(rule)):
+                rule['starttime'] = rule['starttime'] - (rule['buffer_time'] - self.get_run_every_segment_size(rule))
                 rule['original_starttime'] = rule['starttime']
 
     def adjust_start_time_for_interval_sync(self, rule, endtime):
@@ -950,8 +950,9 @@ class ElastAlerter():
         tmp_endtime = rule['starttime']
 
         while endtime - rule['starttime'] > segment_size:
-            elastalert_logger.info("Segment Size: {}".format(segment_size))
             tmp_endtime = tmp_endtime + segment_size
+            elastalert_logger.info(
+                "Segment Size: {}, from {}, to {}".format(segment_size, rule['starttime'], tmp_endtime))
             if not self.run_query(rule, rule['starttime'], tmp_endtime):
                 return 0
             self.cumulative_hits += self.num_hits
