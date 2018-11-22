@@ -9,6 +9,8 @@ import sys
 import time
 import timeit
 import traceback
+import urllib
+import urlparse
 from email.mime.text import MIMEText
 from smtplib import SMTP
 from smtplib import SMTPException
@@ -17,6 +19,7 @@ from socket import error
 import dateutil.tz
 import kibana
 import yaml
+import pymongo
 from threadsafe_copy import ThreadsafeCopy as copy
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -158,6 +161,8 @@ class ElastAlerter():
         self.disabled_rules = []
         self.replace_dots_in_field_names = self.conf.get('replace_dots_in_field_names', False)
         self.string_multi_field_name = self.conf.get('string_multi_field_name', False)
+        self.sonar_uri = self.conf['sonar_uri']
+        self.sonar_con = self.get_sonar_connection(self.sonar_uri)
 
         self.writeback_es = elasticsearch_client(self.conf)
         self._es_version = None
@@ -178,6 +183,49 @@ class ElastAlerter():
 
         if self.args.silence:
             self.silence()
+
+    def get_sonar_connection(self, uri):
+        """
+        Opens a sonar client using the specified uri, and reads the database names from sonar to check that the
+        connection is actually open.
+        :param uri: string in mongo uri format. Normally uses the internal user with the following format:
+        "mongodb://CN=admin@localhost:27117/admin?authSource=$external&authMechanism=PLAIN&certfile=/etc/sonar/ssl/client/admin/cert.pem"
+        :return: sonar client
+        """
+        client = pymongo.MongoClient(self.manipulate_uri(uri))
+        out = client.database_names()
+
+        return client
+
+    def manipulate_uri(self, uri):
+        p = urlparse.urlparse(uri)
+        if not p.password and p.query:
+            password = None
+            qs = urlparse.parse_qs(p.query)
+            if 'certfile' in qs:
+                # password is certfile, with newlines replaced by backslash n
+                password = r'\n'.join([l.rstrip('\n')
+                                       for l in open(qs['certfile'][0], 'r')])
+                del qs['certfile']
+            uri = urlparse.urlunparse((p.scheme,
+                                       self.netloc_with_password(p, password),
+                                       p.path,
+                                       p.params,
+                                       urllib.urlencode(qs, doseq=True),
+                                       p.fragment))
+        return uri
+    @staticmethod
+    def netloc_with_password(p, password):
+        ret = ''
+        if p.username:
+            ret += p.username
+            if password:
+                ret += ':' + urllib.quote(password, safe='')
+            ret += '@'
+        ret += p.hostname
+        if p.port:
+            ret += ':' + str(p.port)
+        return ret
 
     def get_version(self):
         info = self.writeback_es.info()
