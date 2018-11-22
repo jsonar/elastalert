@@ -179,6 +179,8 @@ def load_options(rule, conf, filename, args=None):
             rule['timeframe'] = datetime.timedelta(**rule['timeframe'])
         if 'realert' in rule:
             rule['realert'] = datetime.timedelta(**rule['realert'])
+        if 'previous_endtime' in rule:
+            rule['previous_endtime'] = ts_to_dt(rule['previous_endtime'])
         else:
             if 'aggregation' in rule:
                 rule['realert'] = datetime.timedelta(minutes=0)
