@@ -16,7 +16,6 @@ from smtplib import SMTP
 from smtplib import SMTPException
 from socket import error
 
-import dateutil.tz
 import kibana
 import yaml
 import pymongo
@@ -34,7 +33,7 @@ from elasticsearch.exceptions import ConnectionError
 from elasticsearch.exceptions import ElasticsearchException
 from elasticsearch.exceptions import TransportError
 from enhancements import DropMatchException
-from ruletypes import FlatlineRule
+from rule_type_definitions.frequency_rules import FlatlineRule
 from saved_source_factory import SavedSourceFactory
 from util import add_raw_postfix
 from util import cronite_datetime_to_timestamp

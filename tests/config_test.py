@@ -7,7 +7,7 @@ import os
 import pytest
 
 import elastalert.alerts
-import elastalert.ruletypes
+import elastalert.rule_type_definitions.ruletypes
 from elastalert.config import get_file_paths
 from elastalert.config import load_configuration
 from elastalert.config import load_modules
@@ -55,7 +55,7 @@ def test_import_rules():
 
         # Test that type is imported
         with mock.patch('__builtin__.__import__') as mock_import:
-            mock_import.return_value = elastalert.ruletypes
+            mock_import.return_value = elastalert.rule_type_definitions.ruletypes
             load_configuration('test_config', test_config)
         assert mock_import.call_args_list[0][0][0] == 'testing.test'
         assert mock_import.call_args_list[0][0][3] == ['RuleType']
@@ -172,7 +172,7 @@ def test_load_rules():
         with mock.patch('os.listdir') as mock_ls:
             mock_ls.return_value = ['testrule.yaml']
             rules = load_rules(test_args)
-            assert isinstance(rules['rules'][0]['type'], elastalert.ruletypes.RuleType)
+            assert isinstance(rules['rules'][0]['type'], elastalert.rule_type_definitions.ruletypes.RuleType)
             assert isinstance(rules['rules'][0]['alert'][0], elastalert.alerts.Alerter)
             assert isinstance(rules['rules'][0]['timeframe'], datetime.timedelta)
             assert isinstance(rules['run_every'], datetime.timedelta)

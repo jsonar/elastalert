@@ -9,13 +9,23 @@ import sys
 import alerts
 import enhancements
 import jsonschema
-import ruletypes
+
 import yaml
 import yaml.scanner
 from envparse import Env
 from opsgenie import OpsGenieAlerter
 from staticconf.loader import yaml_loader
 from saved_source_factory import SavedSourceFactory
+
+from rule_type_definitions import aggregation_rules
+from rule_type_definitions import any_rule
+from rule_type_definitions import cardinality_rule
+from rule_type_definitions import compare_rules
+from rule_type_definitions import frequency_rules
+from rule_type_definitions import new_terms_rule
+from rule_type_definitions import spike_rule
+from rule_type_definitions import ruletypes
+
 from util import dt_to_ts
 from util import dt_to_ts_with_format
 from util import dt_to_unix
@@ -50,17 +60,17 @@ import_rules = {}
 
 # Used to map the names of rules to their classes
 rules_mapping = {
-    'frequency': ruletypes.FrequencyRule,
-    'any': ruletypes.AnyRule,
-    'spike': ruletypes.SpikeRule,
-    'blacklist': ruletypes.BlacklistRule,
-    'whitelist': ruletypes.WhitelistRule,
-    'change': ruletypes.ChangeRule,
-    'flatline': ruletypes.FlatlineRule,
-    'new_term': ruletypes.NewTermsRule,
-    'cardinality': ruletypes.CardinalityRule,
-    'metric_aggregation': ruletypes.MetricAggregationRule,
-    'percentage_match': ruletypes.PercentageMatchRule,
+    'frequency': frequency_rules.FrequencyRule,
+    'any': any_rule.AnyRule,
+    'spike': spike_rule.SpikeRule,
+    'blacklist': compare_rules.BlacklistRule,
+    'whitelist': compare_rules.WhitelistRule,
+    'change': compare_rules.ChangeRule,
+    'flatline': frequency_rules.FlatlineRule,
+    'new_term': new_terms_rule.NewTermsRule,
+    'cardinality': cardinality_rule.CardinalityRule,
+    'metric_aggregation': aggregation_rules.MetricAggregationRule,
+    'percentage_match': aggregation_rules.PercentageMatchRule,
 }
 
 # Used to map names of alerts to their classes
