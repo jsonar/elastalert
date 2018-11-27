@@ -51,3 +51,5 @@ alert_time_limit:
 disable_rules_on_error: false
 
 scroll_keepalive: 10m
+
+sonar_uri: "mongodb://CN=admin@localhost:27117/admin?authSource=$external&authMechanism=PLAIN&certfile=/etc/sonar/ssl/client/admin/cert.pem"

@@ -16,7 +16,6 @@ from smtplib import SMTP
 from smtplib import SMTPException
 from socket import error
 
-import dateutil.tz
 import kibana
 import yaml
 import pymongo
@@ -34,7 +33,7 @@ from elasticsearch.exceptions import ConnectionError
 from elasticsearch.exceptions import ElasticsearchException
 from elasticsearch.exceptions import TransportError
 from enhancements import DropMatchException
-from ruletypes import FlatlineRule
+from rule_type_definitions.frequency_rules import FlatlineRule
 from saved_source_factory import SavedSourceFactory
 from util import add_raw_postfix
 from util import cronite_datetime_to_timestamp
@@ -703,7 +702,7 @@ class ElastAlerter():
             end = ts_now()
 
         # Reset hit counter and query
-        rule_inst = rule['type']
+        rule_inst = rule['type']  # TODO add a type
         index = self.get_index(rule, start, end)
         if rule.get('use_count_query'):
             data = self.get_hits_count(rule, start, end, index)
@@ -721,7 +720,7 @@ class ElastAlerter():
         # There was an exception while querying
         if data is None:
             return False
-        elif data:
+        elif data:    # TODO handle sonar returns
             if rule.get('use_count_query'):
                 rule_inst.add_count_data(data)
             elif rule.get('use_terms_query'):

@@ -5,19 +5,19 @@ import datetime
 import mock
 import pytest
 
-from elastalert.ruletypes import AnyRule
-from elastalert.ruletypes import BaseAggregationRule
-from elastalert.ruletypes import BlacklistRule
-from elastalert.ruletypes import CardinalityRule
-from elastalert.ruletypes import ChangeRule
-from elastalert.ruletypes import EventWindow
-from elastalert.ruletypes import FlatlineRule
-from elastalert.ruletypes import FrequencyRule
-from elastalert.ruletypes import MetricAggregationRule
-from elastalert.ruletypes import NewTermsRule
-from elastalert.ruletypes import PercentageMatchRule
-from elastalert.ruletypes import SpikeRule
-from elastalert.ruletypes import WhitelistRule
+from elastalert.rule_type_definitions.ruletypes import AnyRule
+from elastalert.rule_type_definitions.ruletypes import BaseAggregationRule
+from elastalert.rule_type_definitions.ruletypes import BlacklistRule
+from elastalert.rule_type_definitions.ruletypes import CardinalityRule
+from elastalert.rule_type_definitions.ruletypes import ChangeRule
+from elastalert.rule_type_definitions.ruletypes import EventWindow
+from elastalert.rule_type_definitions.ruletypes import FlatlineRule
+from elastalert.rule_type_definitions.ruletypes import FrequencyRule
+from elastalert.rule_type_definitions.ruletypes import MetricAggregationRule
+from elastalert.rule_type_definitions.ruletypes import NewTermsRule
+from elastalert.rule_type_definitions.ruletypes import PercentageMatchRule
+from elastalert.rule_type_definitions.ruletypes import SpikeRule
+from elastalert.rule_type_definitions.ruletypes import WhitelistRule
 from elastalert.util import dt_to_ts
 from elastalert.util import EAException
 from elastalert.util import ts_now
