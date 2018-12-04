@@ -34,6 +34,7 @@ from elasticsearch.exceptions import ElasticsearchException
 from elasticsearch.exceptions import TransportError
 from enhancements import DropMatchException
 from rule_type_definitions.frequency_rules import FlatlineRule
+from rule_type_definitions.compare_rules import BlacklistRule, WhitelistRule
 from saved_source_factory import SavedSourceFactory
 from util import add_raw_postfix
 from util import cronite_datetime_to_timestamp
@@ -285,6 +286,8 @@ class ElastAlerter():
             return ElastAlerter.get_filtered_query(rule['filter'], starttime, endtime, sort, timestamp_field, to_ts_func, desc, five)
         else:
             raise EAException('Invalid rule, missing saved_source_id or index field.')
+
+        # TODO extend query here
 
     @staticmethod
     def get_filtered_query(filters, starttime=None, endtime=None, sort=True, timestamp_field='@timestamp', to_ts_func=dt_to_ts, desc=False,
@@ -627,6 +630,8 @@ class ElastAlerter():
         return {endtime: buckets}
 
     def get_hits_aggregation(self, rule, starttime, endtime, index, query_key, term_size=None):
+        elastalert_logger.warning('running aggregation ________________________________________________________________________________________________________________________________________-')
+        rule_inst = rule['type']
         base_query = self.get_query(
             rule,
             starttime,
@@ -636,6 +641,10 @@ class ElastAlerter():
             to_ts_func=rule['dt_to_ts'],
             five=rule['five']
         )
+
+        if isinstance(rule_inst, (BlacklistRule, WhitelistRule)):
+            base_query = rule_inst.extend_query(base_query)
+
         if term_size is None:
             term_size = rule.get('terms_size', 50)
         query = self.get_aggregation_query(base_query, rule, query_key, term_size, rule['timestamp_field'])
@@ -709,6 +718,7 @@ class ElastAlerter():
         elif rule.get('use_terms_query'):
             data = self.get_hits_terms(rule, start, end, index, rule['query_key'])
         elif rule.get('aggregation_query_element'):
+            elastalert_logger.warning('still running agg query')
             data = self.get_hits_aggregation(rule, start, end, index, rule.get('query_key', None))
         else:
             data = self.get_hits(rule, start, end, index, scroll)
@@ -813,7 +823,7 @@ class ElastAlerter():
         else:
             if not rule.get('scan_entire_timeframe'):
                 # Query from the end of the last run, if it exists, otherwise a run_every sized window
-                rule['starttime'] = rule.get('previous_endtime', endtime - self.run_every)
+                rule['starttime'] = rule.get('previous_endtime', endtime - self.get_run_every_segment_size(rule))
             else:
                 rule['starttime'] = rule.get('previous_endtime', endtime - rule['timeframe'])
 
@@ -1011,7 +1021,10 @@ class ElastAlerter():
             segment_size = self.get_segment_size(rule, rule['starttime'])
 
         if rule.get('aggregation_query_element'):
+            elastalert_logger.warning('Running agg query')
+            elastalert_logger.info('Endtime: {}, Tmp_end_time: {}, segment_size: {}'.format(endtime, tmp_endtime, segment_size))
             if endtime - tmp_endtime == segment_size:
+                elastalert_logger.warning('entering run query')
                 self.run_query(rule, tmp_endtime, endtime)
                 self.cumulative_hits += self.num_hits
             elif total_seconds(rule['original_starttime'] - tmp_endtime) == 0:
@@ -1021,6 +1034,7 @@ class ElastAlerter():
                 endtime = tmp_endtime
         else:
             if not self.run_query(rule, rule['starttime'], endtime):
+                elastalert_logger.warning('Running other query')
                 return 0
             self.cumulative_hits += self.num_hits
             rule['type'].garbage_collect(endtime)
@@ -1092,7 +1106,7 @@ class ElastAlerter():
             self.send_notification_email(exception=e, rule=new_rule)
             return False
 
-        self.enhance_filter(new_rule)
+        self.enhance_filter(new_rule)  # TODO figure out what this is doing
 
         # Change top_count_keys to .raw
         # SonarK: Irrelevant for us since we don't recognize .keyword as a field postfix.

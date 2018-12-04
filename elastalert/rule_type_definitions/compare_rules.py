@@ -1,10 +1,18 @@
+import re
+from datetime import timedelta
+
 from elastalert.rule_type_definitions.ruletypes import RuleType
-from elastalert.util import lookup_es_key, elastalert_logger, hashable
+from elastalert.util import lookup_es_key, elastalert_logger, hashable, ts_to_dt
 
 
 class CompareRule(RuleType):
     """ A base class for matching a specific term by passing it to a compare function """
     required_options = frozenset(['compound_compare_key'])
+
+    def __init__(self, rules, args=None):
+        super(CompareRule, self).__init__(rules, args=None)
+        self.rules['use_run_every_query_size'] = True
+        self.rules['realert'] = timedelta(0)
 
     def expand_entries(self, list_type):
         """ Expand entries specified in files using the '!file' directive, if there are
@@ -21,15 +29,52 @@ class CompareRule(RuleType):
                 entries_set.add(entry)
         self.rules[list_type] = entries_set
 
+    def generate_aggregation_query(self):
+        return {'{}'.format(self.rules['compare_key']): {'terms': {'field': self.rules['compare_key']}}}
+
+    def generate_item_clauses(self, value_list):
+        item_clauses = []
+        for item in value_list:
+            try:
+                clause = {"match": {"{}".format(self.rules['compare_key']): item}}
+                item_clauses.append(clause)
+            except ValueError:
+                pass
+
+            try:
+                clause = {"match": {"{}".format(self.rules['compare_key']): int(item)}}
+                item_clauses.append(clause)
+            except ValueError:
+                try:
+                    clause = {"match": {"{}".format(self.rules['compare_key']): float(item)}}
+                    item_clauses.append(clause)
+                except ValueError:
+                    pass
+        # TODO deal with more datatypes
+        # TODO handle ignore null for white lists
+        return item_clauses
+
     def compare(self, event):
         """ An event is a match if this returns true """
         raise NotImplementedError()
 
-    def add_data(self, data):
+    def add_data(self, data):  # TODO remove
         # If compare returns true, add it as a match
         for event in data:
             if self.compare(event):
                 self.add_match(event)
+
+    def add_aggregation_data(self, payload):
+        for timestamp, payload_data in payload.iteritems():
+            elastalert_logger.warning("{} {}".format(timestamp, payload_data))
+            self.check_matches(timestamp, payload_data)
+
+    def check_matches(self, timestamp, aggregation_data):
+        for item in aggregation_data['{}'.format(self.rules['compare_key'])]['buckets']:
+            elastalert_logger.info('Item in check matches: {}'.format(item))
+            match = {self.rules['timestamp_field']: timestamp, item['key']: item['doc_count']}
+            elastalert_logger.warning("{} {}".format(timestamp, item))
+            self.add_match(match)
 
 
 class BlacklistRule(CompareRule):
@@ -40,13 +85,18 @@ class BlacklistRule(CompareRule):
         super(BlacklistRule, self).__init__(rules, args=None)
         self.expand_entries('blacklist')
 
-    def compare(self, event):
-        # Sonar: Since lists are always string, might aswell convert the term we extracted from document.
-        term = str(lookup_es_key(event, self.rules['compare_key']))
-        if term in self.rules['blacklist']:
-            return True
+        self.item_clauses = self.generate_item_clauses(self.rules['blacklist'])
 
-        return False
+        self.rules['aggregation_query_element'] = self.generate_aggregation_query()
+
+    def compare(self, event):
+        return True
+
+    def extend_query(self, base_query):
+        """nests the query inside another boolean query to only get documents on the blacklist"""
+        inner_query = base_query['query']
+        query = {"query": {"bool": {"must": [inner_query, {"bool": {"should": self.item_clauses}}]}}}
+        return query
 
 
 class WhitelistRule(CompareRule):
@@ -56,16 +106,17 @@ class WhitelistRule(CompareRule):
     def __init__(self, rules, args=None):
         super(WhitelistRule, self).__init__(rules, args=None)
         self.expand_entries('whitelist')
+        self.item_clauses = self.generate_item_clauses(self.rules['whitelist'])
+        self.rules['aggregation_query_element'] = self.generate_aggregation_query()
 
     def compare(self, event):
-        # Sonar: Since lists are always string, might aswell convert the term we extracted from document.
-        term = str(lookup_es_key(event, self.rules['compare_key']))
-        if term is None:
-            return not self.rules['ignore_null']
-        if term not in self.rules['whitelist']:
-            return True
+        return True
 
-        return False
+    def extend_query(self, base_query):
+        """nests the query inside another boolean query to only get documents on the blacklist"""
+        inner_query = base_query['query']
+        query = {"query": {"bool": {"must": [inner_query, {"bool": {"must_not": self.item_clauses}}]}}}
+        return query
 
 
 class ChangeRule(CompareRule):
