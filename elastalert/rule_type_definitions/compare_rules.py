@@ -32,21 +32,21 @@ class CompareRule(RuleType):
     def generate_aggregation_query(self):
         return {'{}'.format(self.rules['compare_key']): {'terms': {'field': self.rules['compare_key']}}}
 
-    def generate_item_clauses(self, value_list):
+    def generate_item_clauses(self, value_list, field):  # TODO change this to handle a list of keys
         item_clauses = []
         for item in value_list:
             try:
-                clause = {"match": {"{}".format(self.rules['compare_key']): item}}
+                clause = {"match": {"{}".format(field): item}}  # TODO make these terms not matches
                 item_clauses.append(clause)
             except ValueError:
                 pass
 
             try:
-                clause = {"match": {"{}".format(self.rules['compare_key']): int(item)}}
+                clause = {"match": {"{}".format(field): int(item)}}
                 item_clauses.append(clause)
             except ValueError:
                 try:
-                    clause = {"match": {"{}".format(self.rules['compare_key']): float(item)}}
+                    clause = {"match": {"{}".format(field): float(item)}}
                     item_clauses.append(clause)
                 except ValueError:
                     pass
@@ -71,8 +71,7 @@ class CompareRule(RuleType):
 
     def check_matches(self, timestamp, aggregation_data):
         for item in aggregation_data['{}'.format(self.rules['compare_key'])]['buckets']:
-            elastalert_logger.info('Item in check matches: {}'.format(item))
-            match = {self.rules['timestamp_field']: timestamp, item['key']: item['doc_count']}
+            match = {self.rules['timestamp_field']: timestamp, self.rules['compare_key']: item['key'], "doc_count": item['doc_count']}
             elastalert_logger.warning("{} {}".format(timestamp, item))
             self.add_match(match)
 
@@ -85,7 +84,7 @@ class BlacklistRule(CompareRule):
         super(BlacklistRule, self).__init__(rules, args=None)
         self.expand_entries('blacklist')
 
-        self.item_clauses = self.generate_item_clauses(self.rules['blacklist'])
+        self.item_clauses = self.generate_item_clauses(self.rules['blacklist'], self.rules['compare_key'])
 
         self.rules['aggregation_query_element'] = self.generate_aggregation_query()
 
@@ -106,7 +105,7 @@ class WhitelistRule(CompareRule):
     def __init__(self, rules, args=None):
         super(WhitelistRule, self).__init__(rules, args=None)
         self.expand_entries('whitelist')
-        self.item_clauses = self.generate_item_clauses(self.rules['whitelist'])
+        self.item_clauses = self.generate_item_clauses(self.rules['whitelist'], self.rules['compare_key'])
         self.rules['aggregation_query_element'] = self.generate_aggregation_query()
 
     def compare(self, event):
@@ -125,7 +124,29 @@ class ChangeRule(CompareRule):
     change_map = {}
     occurrence_time = {}
 
+    def __init__(self,rules, args=None):
+        super(ChangeRule, self).__init__(rules, args=None)
+        self.expand_entries('compound_compare_key')
+        self.last_values = []
+
+        # self.item_clauses = self.generate_item_clauses(self.rules['compound_compare_key'], self.last_values)
+
+    def extend_query(self, base_query):  # TODO make this work
+        inner_query = base_query['query']
+        query = {"query": {"bool": {"must": [inner_query, {"bool": {"must_not": self.item_clauses}}]}}}
+        return query
+
+
+    def get_last_values(self):
+        for val in self.rules['compound_compare_key']:
+            # TODO add a timestamp field to the sort
+            old_val_query = {"sort": [{"{}"}],"query": {"bool"}}
+
+
+
+
     def compare(self, event):
+        """
         key = hashable(lookup_es_key(event, self.rules['query_key']))
         values = []
         elastalert_logger.debug(" Previous Values of compare keys  " + str(self.occurrences))
@@ -158,6 +179,8 @@ class ChangeRule(CompareRule):
             self.occurrence_time[key] = event[self.rules['timestamp_field']]
         elastalert_logger.debug("Final result of comparision between previous and current values " + str(changed))
         return changed
+        """
+        return True
 
     def add_match(self, match):
         # TODO this is not technically correct
@@ -169,5 +192,5 @@ class ChangeRule(CompareRule):
             extra = {'old_value': change[0],
                      'new_value': change[1]}
             elastalert_logger.debug("Description of the changed records  " + str(dict(match.items() + extra.items())))
-        super(ChangeRule, self).add_match(dict(match.items() + extra.items()))
-
+        # super(ChangeRule, self).add_match(dict(match.items() + extra.items()))
+        # TODO add actual match currently commented to keep the log spam down
