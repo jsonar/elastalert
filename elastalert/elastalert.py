@@ -294,48 +294,7 @@ class ElastAlerter():
 
         # TODO build change rule query here
         elif isinstance(rule_inst, ChangeRule):
-            query_key_terms_query = {'query': {'bool': {'must': [
-                                                        {'range': {timestamp_field: {'gt': starttime, 'lte': endtime}}}]}},
-                                     "aggs": {"key_values": {"terms": {"field": rule['query_key']}}}}
-            #try:
-            query_key_values = self.current_es.search(index=index, doc_type=rule.get('doc_type'), size=0, body=query_key_terms_query, ignore_unavailable=True)
-            """
-            except ElasticsearchException as e:
-                # Elasticsearch sometimes gives us GIGANTIC error messages
-                # (so big that they will fill the entire terminal buffer)
-                if len(str(e)) > 1024:
-                    e = str(e)[:1024] + '... (%d characters removed)' % (len(str(e)) - 1024)
-                self.handle_error('Error making change rule aggregation: %s' % (e), {'rule': rule['name'], 'query': query})
-                return None # TODO what to return here?
-            """
-
-            request = []
-            req_head = {'index': index, 'type': rule.get('doc_type')}
-            if query_key_values['aggregations']['key_values']['buckets']:
-                for field in rule['compound_compare_key']:
-                        for key_field in query_key_values['aggregations']['key_values']['buckets']:
-                            key = key_field['key']
-
-                            req_body = {
-                                'sort': [{timestamp_field: {'order': 'asc'}}],
-                                'query': {"bool": {"must": [{'term': {rule['query_key']: key}},
-                                                            {'exists': {'field': field}},
-                                                            {'range': {timestamp_field: {'gt': starttime, 'lte': endtime}}}]}},
-                                'size': 1,
-                                'script_fields':{ "query_key": {rule['query_key']: "doc[{}].value".format(rule['query_key'])},
-                                                  "compare_key": {field: "doc[{}].value".format(field)}}
-                            } # TODO add Scripted field
-                            request.extend([req_head, req_body])
-
-                value_white_list = []  # list of tuples holding query_key_value, compare_key, compare_key_value
-                resp = self.current_es.msearch(body=request)
-                # for item in resp['responses']:
-
-            else:
-                for field in rule['compound_compare_key']:
-                    resp = ''  # TODO get this formated right
-
-            elastalert_logger.warning('oldest value for each key value pair: {}'.format(resp))
+            self.get_change_rule_query(query, rule, timestamp_field,starttime, endtime, index)
 
             #{u'hits': {u'hits': [], u'total': 9, u'max_score': 0.0}, u'aggregations': {
             #    u'key_values': {u'buckets': [{u'key': u'dog', u'doc_count': 6}, {u'key': u'cat', u'doc_count': 3}]
@@ -348,28 +307,65 @@ class ElastAlerter():
             """
         return query
 
-    def get_old_value(self, target_field, query_field, timestamp_field, last_time, index):
-        old_val_query = {'sort': {timestamp_field: {'order': 'asc'}},
-                         "size": 1,
-                         'query': {'bool': {'must': [{'exists': {'field': query_field}},
-                                                     {'exists': {'field': target_field}},
-                                                     {'range': {timestamp_field: {'gt': last_time}
-                                                                }}
-                                                    ]
-                                            }}}
+    def get_change_rule_query(self, query, rule, timestamp_field, starttime, endtime, index):
+        # find what values of query key are inside the queried time range
+        query_key_terms_query = {'query': {'bool': {'must': [
+            {'range': {timestamp_field: {'gt': starttime, 'lte': endtime}}}]}},
+            "aggs": {"key_values": {"terms": {"field": rule['query_key']}}}}
         # try:
-        res = self.current_es.search(index=index, size=1, body=old_val_query, _source_include=[timestamp_field],
-                                     ignore_unavailable=True)
-        elastalert_logger.warning("res: {}".format(res))
+        query_key_values = self.current_es.search(index=index, doc_type=rule.get('doc_type'), size=0,
+                                                  body=query_key_terms_query, ignore_unavailable=True)
         """
         except ElasticsearchException as e:
-            self.handle_error("Elasticsearch query error: %s" % (e), {'index': index, 'query': old_val_query})
-            return '1969-12-30T00:00:00Z'
-        if len(res['hits']['hits']) == 0:
-            # Index is completely empty, return a date before the epoch
-            return '1969-12-30T00:00:00Z'
-        return res['hits']['hits'][0][timestamp_field]
+            # Elasticsearch sometimes gives us GIGANTIC error messages
+            # (so big that they will fill the entire terminal buffer)
+            if len(str(e)) > 1024:
+                e = str(e)[:1024] + '... (%d characters removed)' % (len(str(e)) - 1024)
+            self.handle_error('Error making change rule aggregation: %s' % (e), {'rule': rule['name'], 'query': query})
+            return None # TODO what to return here?
         """
+        # get the oldest value in the time range for each compare key for each query key
+        request = []
+        req_head = {'index': index, 'type': rule.get('doc_type')}
+        if query_key_values['aggregations']['key_values']['buckets']:
+            for field in rule['compound_compare_key']:
+                for key_field in query_key_values['aggregations']['key_values']['buckets']:
+                    key = key_field['key']
+
+                    req_body = {
+                        'sort': [{timestamp_field: {'order': 'asc'}}],
+                        'query': {"bool": {"must": [{'term': {rule['query_key']: key}},
+                                                    {'exists': {'field': field}},
+                                                    {'range': {timestamp_field: {'gt': starttime, 'lte': endtime}}}]}},
+                        'size': 1,
+                        'script_fields':{
+                            "compare_key_field": {"script": {"inline": "'{}'".format(field), "lang": "sonar"}}
+                        }
+                    }
+                    request.extend([req_head, req_body])
+
+            resp = self.current_es.msearch(body=request)
+
+        else:
+            resp = {'responses': []}
+
+        # generate clauses that will match with any allowed values
+        item_clauses = []
+        for item in resp['responses']:
+            query_key_value = item['hits']['hits'][0]['_source'].get(rule['query_key'])
+            compare_key = item['hits']['hits'][0]['_source'].get('compare_key_field')
+            compare_key_value = item['hits']['hits'][0]['_source'].get(compare_key)
+
+            clause = {"bool": {"must": [
+                {"term": {rule['query_key']: query_key_value}},
+                {"term": {compare_key: compare_key_value}}
+                                       ]}}
+            item_clauses.append(clause)
+
+        #build the main query from the generated clauses
+        query = {"query": {"bool": {"must": [query, {"bool": {"must_not": item_clauses}}]}}}
+        elastalert_logger.warning('Generated query: {}'.format(query))
+        return query
 
     @staticmethod
     def get_filtered_query(filters, starttime=None, endtime=None, sort=True, timestamp_field='@timestamp', to_ts_func=dt_to_ts, desc=False,
