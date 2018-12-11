@@ -292,19 +292,9 @@ class ElastAlerter():
         if isinstance(rule_inst, (BlacklistRule, WhitelistRule)):
             query = rule_inst.extend_query(query)
 
-        # TODO build change rule query here
         elif isinstance(rule_inst, ChangeRule):
-            self.get_change_rule_query(query, rule, timestamp_field,starttime, endtime, index)
+            query = self.get_change_rule_query(query, rule, timestamp_field,starttime, endtime, index)
 
-            #{u'hits': {u'hits': [], u'total': 9, u'max_score': 0.0}, u'aggregations': {
-            #    u'key_values': {u'buckets': [{u'key': u'dog', u'doc_count': 6}, {u'key': u'cat', u'doc_count': 3}]
-
-
-            """
-            try:
-                res = self.current_es.count(index=index, doc_type=rule['doc_type'], body=query, ignore_unavailable=True)
-            
-            """
         return query
 
     def get_change_rule_query(self, query, rule, timestamp_field, starttime, endtime, index):
@@ -315,6 +305,7 @@ class ElastAlerter():
         # try:
         query_key_values = self.current_es.search(index=index, doc_type=rule.get('doc_type'), size=0,
                                                   body=query_key_terms_query, ignore_unavailable=True)
+        # TODO error catching for es errors
         """
         except ElasticsearchException as e:
             # Elasticsearch sometimes gives us GIGANTIC error messages
@@ -357,14 +348,15 @@ class ElastAlerter():
             compare_key_value = item['hits']['hits'][0]['_source'].get(compare_key)
 
             clause = {"bool": {"must": [
-                {"term": {rule['query_key']: query_key_value}},
-                {"term": {compare_key: compare_key_value}}
+                {"match": {rule['query_key']: query_key_value}},
+                {"match": {compare_key: compare_key_value}}
                                        ]}}
             item_clauses.append(clause)
 
         #build the main query from the generated clauses
-        query = {"query": {"bool": {"must": [query, {"bool": {"must_not": item_clauses}}]}}}
-        elastalert_logger.warning('Generated query: {}'.format(query))
+        inner_query = query['query']
+        query = {"query": {"bool": {"must": [inner_query, {"bool": {"must_not": item_clauses}}]}}}
+
         return query
 
     @staticmethod
@@ -448,7 +440,7 @@ class ElastAlerter():
         else:
             aggs_element = metric_agg_element
 
-        if query_key is not None:
+        if query_key is not None and not isinstance(rule['type'], ChangeRule):
             for idx, key in reversed(list(enumerate(query_key.split(',')))):
                 aggs_element = {'bucket_aggs': {'terms': {'field': key, 'size': terms_size}, 'aggs': aggs_element}}
 
@@ -540,7 +532,6 @@ class ElastAlerter():
             five=rule['five'],
             index=index
         )
-        elastalert_logger.warning('Running normal query. Base query {}'.format(query))
         extra_args = {'_source_include': rule['include']}
         scroll_keepalive = rule.get('scroll_keepalive', self.scroll_keepalive)
         if not rule.get('_source_enabled'):
@@ -710,8 +701,6 @@ class ElastAlerter():
         return {endtime: buckets}
 
     def get_hits_aggregation(self, rule, starttime, endtime, index, query_key, term_size=None):
-        # TODO remove debug
-        elastalert_logger.warning('running aggregation ________________________________________________________________________________________________________________________________________-')
         base_query = self.get_query(
             rule,
             starttime,
@@ -789,14 +778,13 @@ class ElastAlerter():
             end = ts_now()
 
         # Reset hit counter and query
-        rule_inst = rule['type']  # TODO where should compare rules fit
+        rule_inst = rule['type']
         index = self.get_index(rule, start, end)
         if rule.get('use_count_query'):
             data = self.get_hits_count(rule, start, end, index)
         elif rule.get('use_terms_query'):
             data = self.get_hits_terms(rule, start, end, index, rule['query_key'])
         elif rule.get('aggregation_query_element'):
-            elastalert_logger.warning('still running agg query')
             data = self.get_hits_aggregation(rule, start, end, index, rule.get('query_key', None))
         else:
             data = self.get_hits(rule, start, end, index, scroll)
@@ -808,7 +796,7 @@ class ElastAlerter():
         # There was an exception while querying
         if data is None:
             return False
-        elif data:    # TODO handle sonar returns
+        elif data:
             if rule.get('use_count_query'):
                 rule_inst.add_count_data(data)
             elif rule.get('use_terms_query'):
@@ -1099,10 +1087,7 @@ class ElastAlerter():
             segment_size = self.get_segment_size(rule, rule['starttime'])
 
         if rule.get('aggregation_query_element'):
-            elastalert_logger.warning('Running agg query')
-            elastalert_logger.info('Endtime: {}, Tmp_end_time: {}, segment_size: {}'.format(endtime, tmp_endtime, segment_size))
             if endtime - tmp_endtime == segment_size:
-                elastalert_logger.warning('entering run query')
                 self.run_query(rule, tmp_endtime, endtime)
                 self.cumulative_hits += self.num_hits
             elif total_seconds(rule['original_starttime'] - tmp_endtime) == 0:
@@ -1112,7 +1097,6 @@ class ElastAlerter():
                 endtime = tmp_endtime
         else:
             if not self.run_query(rule, rule['starttime'], endtime):
-                elastalert_logger.warning('Running other query')
                 return 0
             self.cumulative_hits += self.num_hits
             rule['type'].garbage_collect(endtime)
@@ -1184,7 +1168,7 @@ class ElastAlerter():
             self.send_notification_email(exception=e, rule=new_rule)
             return False
 
-        self.enhance_filter(new_rule)  # TODO figure out what this is doing
+        self.enhance_filter(new_rule)
 
         # Change top_count_keys to .raw
         # SonarK: Irrelevant for us since we don't recognize .keyword as a field postfix.
