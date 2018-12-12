@@ -319,15 +319,19 @@ class ElastAlerter():
         request = []
         req_head = {'index': index, 'type': rule.get('doc_type')}
         if query_key_values['aggregations']['key_values']['buckets']:
+            if rule.get('timeframe'):
+                time_clause = {'range': {timestamp_field: {'gt': starttime-rule['timeframe'], 'lte': endtime}}}
+            else:
+                time_clause = {'range': {timestamp_field: {'lte': starttime}}}
             for field in rule['compound_compare_key']:
                 for key_field in query_key_values['aggregations']['key_values']['buckets']:
                     key = key_field['key']
 
                     req_body = {
-                        'sort': [{timestamp_field: {'order': 'asc'}}],
+                        'sort': [{timestamp_field: {'order': 'desc'}}],
                         'query': {"bool": {"must": [{'term': {rule['query_key']: key}},
                                                     {'exists': {'field': field}},
-                                                    {'range': {timestamp_field: {'gt': starttime, 'lte': endtime}}}]}},
+                                                    time_clause]}},
                         'size': 1,
                         'script_fields':{
                             "compare_key_field": {"script": {"inline": "'{}'".format(field), "lang": "sonar"}}
