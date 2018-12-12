@@ -15,6 +15,7 @@ from email.mime.text import MIMEText
 from smtplib import SMTP
 from smtplib import SMTPException
 from socket import error
+from pytz import utc
 
 import kibana
 import yaml
@@ -172,7 +173,7 @@ class ElastAlerter():
             'misfire_grace_time': 3600  # Allow job to start even if they are delayed by 3600s (1hr).
         }, executors={
             'default': ThreadPoolExecutor(1)  # Force synchronous operations.
-        })
+        }, timezone=utc)
 
         remove = []
         for rule in self.rules:
