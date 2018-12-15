@@ -41,7 +41,6 @@ class RuleType(object):
         """
         # Convert datetime's back to timestamps
         ts = self.rules.get('timestamp_field')
-        # TODO take a look at what the event actually look like, since they seem to be most of the returned doc
         if ts in event:
             event[ts] = dt_to_ts(event[ts])
 
