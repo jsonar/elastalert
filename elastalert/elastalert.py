@@ -293,73 +293,7 @@ class ElastAlerter():
             query = rule_inst.extend_query(query)
 
         elif isinstance(rule_inst, ChangeRule):
-            query = self.get_change_rule_query(query, rule, timestamp_field,starttime, endtime, index)
-
-        return query
-
-    def get_change_rule_query(self, query, rule, timestamp_field, starttime, endtime, index):
-        # find what values of query key are inside the queried time range
-        query_key_terms_query = {'query': {'bool': {'must': [
-            {'range': {timestamp_field: {'gt': starttime, 'lte': endtime}}}]}},
-            "aggs": {"key_values": {"terms": {"field": rule['query_key']}}}}
-        # try:
-        query_key_values = self.current_es.search(index=index, doc_type=rule.get('doc_type'), size=0,
-                                                  body=query_key_terms_query, ignore_unavailable=True)
-        # TODO error catching for es errors
-        """
-        except ElasticsearchException as e:
-            # Elasticsearch sometimes gives us GIGANTIC error messages
-            # (so big that they will fill the entire terminal buffer)
-            if len(str(e)) > 1024:
-                e = str(e)[:1024] + '... (%d characters removed)' % (len(str(e)) - 1024)
-            self.handle_error('Error making change rule aggregation: %s' % (e), {'rule': rule['name'], 'query': query})
-            return None # TODO what to return here?
-        """
-        # get the oldest value in the time range for each compare key for each query key
-        request = []
-        req_head = {'index': index, 'type': rule.get('doc_type')}
-        if query_key_values['aggregations']['key_values']['buckets']:
-            if rule.get('timeframe'):
-                time_clause = {'range': {timestamp_field: {'gt': starttime-rule['timeframe'], 'lte': endtime}}}
-            else:
-                time_clause = {'range': {timestamp_field: {'lte': starttime}}}
-            for field in rule['compound_compare_key']:
-                for key_field in query_key_values['aggregations']['key_values']['buckets']:
-                    key = key_field['key']
-
-                    req_body = {
-                        'sort': [{timestamp_field: {'order': 'desc'}}],
-                        'query': {"bool": {"must": [{'term': {rule['query_key']: key}},
-                                                    {'exists': {'field': field}},
-                                                    time_clause]}},
-                        'size': 1,
-                        'script_fields':{
-                            "compare_key_field": {"script": {"inline": "'{}'".format(field), "lang": "sonar"}}
-                        }
-                    }
-                    request.extend([req_head, req_body])
-
-            resp = self.current_es.msearch(body=request)
-
-        else:
-            resp = {'responses': []}
-
-        # generate clauses that will match with any allowed values
-        item_clauses = []
-        for item in resp['responses']:
-            query_key_value = item['hits']['hits'][0]['_source'].get(rule['query_key'])
-            compare_key = item['hits']['hits'][0]['_source'].get('compare_key_field')
-            compare_key_value = item['hits']['hits'][0]['_source'].get(compare_key)
-
-            clause = {"bool": {"must": [
-                {"match": {rule['query_key']: query_key_value}},
-                {"match": {compare_key: compare_key_value}}
-                                       ]}}
-            item_clauses.append(clause)
-
-        #build the main query from the generated clauses
-        inner_query = query['query']
-        query = {"query": {"bool": {"must": [inner_query, {"bool": {"must_not": item_clauses}}]}}}
+            query = rule_inst.extend_query(self.current_es, query, rule, timestamp_field, starttime, endtime, index)
 
         return query
 
@@ -1082,7 +1016,7 @@ class ElastAlerter():
                 "Segment Size: {}, from {}, to {}".format(segment_size, rule['starttime'], tmp_endtime))
             if not self.run_query(rule, rule['starttime'], tmp_endtime):
                 return 0
-            self.cumulative_hits += self.num_hits  # TODO handle retroactive lookback? (buffer time should do this)
+            self.cumulative_hits += self.num_hits
             self.num_hits = 0
             rule['starttime'] = tmp_endtime
             rule['type'].garbage_collect(tmp_endtime)
@@ -1110,7 +1044,7 @@ class ElastAlerter():
         while rule['type'].matches:
             match = rule['type'].matches.pop(0)
             match['num_hits'] = self.cumulative_hits
-            match['num_matches'] = num_matches  # TODO don't do this
+            match['num_matches'] = num_matches
 
             # If realert is set, silence the rule for that duration
             # Silence is cached by query_key, if it exists
@@ -1150,7 +1084,7 @@ class ElastAlerter():
         rule['previous_endtime'] = endtime
 
         time_taken = time.time() - run_start
-        # Write to ES that we've run this rule against this time period  # TODO no num matches, cumulitive hits?
+        # Write to ES that we've run this rule against this time period
         body = {'rule_name': rule['name'],
                 'endtime': endtime,
                 'starttime': rule['original_starttime'],
@@ -2057,6 +1991,7 @@ class ElastAlerter():
     def handle_error(self, message, data=None):
         ''' Logs message at error level and writes message, data and traceback to Elasticsearch. '''
         logging.error(message)
+        elastalert_logger.error(message)
         body = {'message': message}
         tb = traceback.format_exc()
         body['traceback'] = tb.strip().split('\n')

@@ -1,8 +1,9 @@
-import re
 from datetime import timedelta
 
+from elasticsearch.exceptions import ElasticsearchException
+
 from elastalert.rule_type_definitions.ruletypes import RuleType
-from elastalert.util import lookup_es_key, elastalert_logger, hashable, ts_to_dt
+from elastalert.util import elastalert_logger
 
 
 class CompareRule(RuleType):
@@ -32,36 +33,34 @@ class CompareRule(RuleType):
 
     def generate_aggregation_query(self, key):
         self.agg_key = key
-        elastalert_logger.warning('aggregation query element: {}'.format({'{}'.format(key): {'terms': {'field': key}}}))
-        return {'{}'.format(key): {'terms': {'field': key}}}
+        agg_query = {'{}'.format(key): {'terms': {'field': key}}}
+        return agg_query
 
     def generate_item_clauses(self, value_list, field):
         item_clauses = []
         for item in value_list:
-            try:
-                clause = {"match": {"{}".format(field): item}}  # TODO make these terms not matches
-                item_clauses.append(clause)
-            except ValueError:
-                pass
+            clause = {"term": {"{}".format(field): item}}
+            item_clauses.append(clause)
 
-            try:
-                clause = {"match": {"{}".format(field): int(item)}}
+            if item.upper() in ['NULL']:
+                clause = {"bool": {"must_not": {"exists": {"field": field}}}}
                 item_clauses.append(clause)
-            except ValueError:
-                try:
-                    clause = {"match": {"{}".format(field): float(item)}}
-                    item_clauses.append(clause)
-                except ValueError:
-                    pass
-        # TODO deal with more datatypes
-        # TODO handle ignore null for white lists
+            elif item in ['""']:
+                clause = {"term": {"{}".format(field): ""}}
+                item_clauses.append(clause)
+
+        if self.rules.get('ignore_null'):
+            if self.rules['ignore_null']:
+                clause = {"bool": {"must_not": {"exists": {"field": field}}}}
+                item_clauses.append(clause)
+
         return item_clauses
 
     def compare(self, event):
         """ An event is a match if this returns true """
         raise NotImplementedError()
 
-    def add_data(self, data):  # TODO remove
+    def add_data(self, data):
         # If compare returns true, add it as a match
         for event in data:
             if self.compare(event):
@@ -69,11 +68,9 @@ class CompareRule(RuleType):
 
     def add_aggregation_data(self, payload):
         for timestamp, payload_data in payload.iteritems():
-            # elastalert_logger.warning("{} {}".format(timestamp, payload_data))
             self.check_matches(timestamp, payload_data)
 
     def check_matches(self, timestamp, aggregation_data):
-        # elastalert_logger.warning("aggregation_data looks like this: {}".format(aggregation_data))
         for item in aggregation_data['{}'.format(self.agg_key)]['buckets']:
             match = {self.rules['timestamp_field']: timestamp, self.agg_key: item['key'], "doc_count": item['doc_count']}
             self.add_match(match)
@@ -134,22 +131,75 @@ class ChangeRule(CompareRule):
 
     def compare(self, event):
         return True
-    """
-    def check_matches(self, timestamp, aggregation_data):
-        for item in aggregation_data['bucket_aggs']['buckets']:
-            leaf_agg_data = {self.rules['query_key']: item[self.rules['query_key']]}
-            super(ChangeRule, self).check_matches(timestamp, leaf_agg_data)
 
-    def add_match(self, match):
-        # TODO this is not technically correct
-        # if the term changes multiple times before an alert is sent
-        # this data will be overwritten with the most recent change
-        change = self.change_map.get(hashable(lookup_es_key(match, self.rules['query_key'])))
-        extra = {}
-        if change:
-            extra = {'old_value': change[0],
-                     'new_value': change[1]}
-            elastalert_logger.debug("Description of the changed records  " + str(dict(match.items() + extra.items())))
-        # super(ChangeRule, self).add_match(dict(match.items() + extra.items()))
-        # TODO add actual match currently commented to keep the log spam down
-    """
+    def extend_query(self, current_es, query, rule, timestamp_field, starttime, endtime, index):
+        # Find what values of query key are inside the queried time range
+        query_key_terms_query = {'query': {'bool': {'must': [
+            {'range': {timestamp_field: {'gt': starttime, 'lte': endtime}}}]}},
+            "aggs": {"key_values": {"terms": {"field": rule['query_key']}}}}
+        try:
+            query_key_values = current_es.search(index=index, doc_type=rule.get('doc_type'), size=0,
+                                                      body=query_key_terms_query, ignore_unavailable=True)
+
+            # Get the oldest value in the time range for each compare key for each query key
+            request = []
+            req_head = {'index': index, 'type': rule.get('doc_type')}
+            if query_key_values['aggregations']['key_values']['buckets']:
+                if rule.get('timeframe'):
+                    time_clause = {'range': {timestamp_field: {'gt': starttime-rule['timeframe'], 'lte': endtime}}}
+                else:
+                    time_clause = {'range': {timestamp_field: {'lte': starttime}}}
+                for field in rule['compound_compare_key']:
+                    for key_field in query_key_values['aggregations']['key_values']['buckets']:
+                        key = key_field['key']
+
+                        req_body = {
+                            'sort': [{timestamp_field: {'order': 'desc'}}],
+                            'query': {"bool": {"must": [{'term': {rule['query_key']: key}},
+                                                        {'exists': {'field': field}},
+                                                        time_clause]}},
+                            'size': 1,
+                            'script_fields':{
+                                "compare_key_field": {"script": {"inline": "'{}'".format(field), "lang": "sonar"}}
+                            }
+                        }
+                        request.extend([req_head, req_body])
+                resp = current_es.msearch(body=request)
+
+            else:
+                resp = {'responses': []}
+
+            # Generate clauses that will match with any allowed values
+            item_clauses = []
+            for item in resp['responses']:
+                if item['hits']['hits']:
+                    query_key_value = item['hits']['hits'][0]['_source'].get(rule['query_key'])
+                    compare_key = item['hits']['hits'][0]['_source'].get('compare_key_field')
+                    compare_key_value = item['hits']['hits'][0]['_source'].get(compare_key)
+
+                    if not rule.get('ignore _null'):
+                        clause = {"bool": {"must": [
+                            {"match": {rule['query_key']: query_key_value}},
+                            {"match": {compare_key: compare_key_value}}
+                                                   ]}}
+                    else:  # Add the extra condition to ignore missing compare fields is ignore null is set
+                        clause = {"bool": {"must": [
+                            {"bool": {"should": [{"bool": {"must_not": [{"exists":{"field": compare_key}}]}},
+                                      {"match": {compare_key: compare_key_value}}]}},
+                            {"match": {rule['query_key']: query_key_value}}
+                                                   ]}}
+                    item_clauses.append(clause)
+
+            # Build the main query from the generated clauses
+            inner_query = query['query']
+            query = {"query": {"bool": {"must": [inner_query, {"bool": {"must_not": item_clauses}}]}}}
+
+            return query
+
+        except ElasticsearchException as e:
+            # Elasticsearch sometimes gives us GIGANTIC error messages
+            # (so big that they will fill the entire terminal buffer)
+            if len(str(e)) > 1024:
+                e = str(e)[:1024] + '... (%d characters removed)' % (len(str(e)) - 1024)
+            elastalert_logger.error('Error performing query to generate change rule query: %s' % (e),
+                                      {'rule': rule['name'], 'query': query})
