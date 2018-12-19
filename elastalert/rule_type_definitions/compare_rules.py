@@ -39,18 +39,17 @@ class CompareRule(RuleType):
     def generate_item_clauses(self, value_list, field):
         item_clauses = []
         for item in value_list:
-            clause = {"term": {"{}".format(field): item}}
+            clause = {"term": {field: item}}
             item_clauses.append(clause)
 
-            if item.upper() in ['NULL']:
+            if item.upper() == 'NULL':
                 clause = {"bool": {"must_not": {"exists": {"field": field}}}}
                 item_clauses.append(clause)
-            elif item in ['""']:
-                clause = {"term": {"{}".format(field): ""}}
+            elif item == '""':
+                clause = {"term": {field: ""}}
                 item_clauses.append(clause)
 
         if self.rules.get('ignore_null'):
-            if self.rules['ignore_null']:
                 clause = {"bool": {"must_not": {"exists": {"field": field}}}}
                 item_clauses.append(clause)
 
@@ -133,73 +132,100 @@ class ChangeRule(CompareRule):
         return True
 
     def extend_query(self, current_es, query, rule, timestamp_field, starttime, endtime, index):
+
+        query_key_values = self.get_query_keys_in_timewindow(current_es, query, rule, timestamp_field,
+                                                            starttime, endtime, index)
+        if query_key_values:
+            resp = self.get_old_query_key_values(current_es, query_key_values, rule, timestamp_field,
+                                                 starttime, endtime, index)
+            if resp:
+                item_clauses = self.generate_item_clauses(resp, rule)
+
+                # Build the main query from the generated clauses
+                inner_query = query['query']
+                query = {"query": {"bool": {"must": [inner_query, {"bool": {"must_not": item_clauses}}]}}}
+
+                return query
+
+    def get_query_keys_in_timewindow(self, current_es, query, rule, timestamp_field, starttime, endtime, index):
         # Find what values of query key are inside the queried time range
-        query_key_terms_query = {'query': {'bool': {'must': [
-            {'range': {timestamp_field: {'gt': starttime, 'lte': endtime}}}]}},
-            "aggs": {"key_values": {"terms": {"field": rule['query_key']}}}}
         try:
+            query_key_terms_query = {'query': {'bool': {'must': [
+                {'range': {timestamp_field: {'gt': starttime, 'lte': endtime}}}]}},
+                "aggs": {"key_values": {"terms": {"field": rule['query_key']}}}}
             query_key_values = current_es.search(index=index, doc_type=rule.get('doc_type'), size=0,
-                                                      body=query_key_terms_query, ignore_unavailable=True)
-
-            # Get the oldest value in the time range for each compare key for each query key
-            request = []
-            req_head = {'index': index, 'type': rule.get('doc_type')}
-            if query_key_values['aggregations']['key_values']['buckets']:
-                if rule.get('timeframe'):
-                    time_clause = {'range': {timestamp_field: {'gt': starttime-rule['timeframe'], 'lte': endtime}}}
-                else:
-                    time_clause = {'range': {timestamp_field: {'lte': starttime}}}
-                for field in rule['compound_compare_key']:
-                    for key_field in query_key_values['aggregations']['key_values']['buckets']:
-                        key = key_field['key']
-
-                        req_body = {
-                            'sort': [{timestamp_field: {'order': 'desc'}}],
-                            'query': {"bool": {"must": [{'term': {rule['query_key']: key}},
-                                                        {'exists': {'field': field}},
-                                                        time_clause]}},
-                            'size': 1,
-                            'script_fields':{
-                                "compare_key_field": {"script": {"inline": "'{}'".format(field), "lang": "sonar"}}
-                            }
-                        }
-                        request.extend([req_head, req_body])
-                resp = current_es.msearch(body=request)
-
-            else:
-                resp = {'responses': []}
-
-            # Generate clauses that will match with any allowed values
-            item_clauses = []
-            for item in resp['responses']:
-                if item['hits']['hits']:
-                    query_key_value = item['hits']['hits'][0]['_source'].get(rule['query_key'])
-                    compare_key = item['hits']['hits'][0]['_source'].get('compare_key_field')
-                    compare_key_value = item['hits']['hits'][0]['_source'].get(compare_key)
-
-                    if not rule.get('ignore _null'):
-                        clause = {"bool": {"must": [
-                            {"match": {rule['query_key']: query_key_value}},
-                            {"match": {compare_key: compare_key_value}}
-                                                   ]}}
-                    else:  # Add the extra condition to ignore missing compare fields is ignore null is set
-                        clause = {"bool": {"must": [
-                            {"bool": {"should": [{"bool": {"must_not": [{"exists":{"field": compare_key}}]}},
-                                      {"match": {compare_key: compare_key_value}}]}},
-                            {"match": {rule['query_key']: query_key_value}}
-                                                   ]}}
-                    item_clauses.append(clause)
-
-            # Build the main query from the generated clauses
-            inner_query = query['query']
-            query = {"query": {"bool": {"must": [inner_query, {"bool": {"must_not": item_clauses}}]}}}
-
-            return query
+                                                          body=query_key_terms_query, ignore_unavailable=True)
+            return query_key_values
 
         except ElasticsearchException as e:
             # Elasticsearch sometimes gives us GIGANTIC error messages
             # (so big that they will fill the entire terminal buffer)
             if len(str(e)) > 1024:
                 e = str(e)[:1024] + '... (%d characters removed)' % (len(str(e)) - 1024)
-            elastalert_logger.error('Error performing query to generate change rule query: %s' % (e),
-                                      {'rule': rule['name'], 'query': query})
+
+            elastalert_logger.error('Error getting query keys in timewindow for change rule: %s' % (e),
+                                    {'rule': rule['name'], 'query': query})
+
+    def get_old_query_key_values(self, current_es, query_key_values, rule, timestamp_field, starttime, endtime, index):
+        # Get the oldest value in the time range for each compare key for each query key
+        request = []
+        req_head = {'index': index, 'type': rule.get('doc_type')}
+        if query_key_values['aggregations']['key_values']['buckets']:
+            if rule.get('timeframe'):
+                time_clause = {'range': {timestamp_field: {'gt': starttime - rule['timeframe'], 'lte': endtime}}}
+            else:
+                time_clause = {'range': {timestamp_field: {'lte': starttime}}}
+            for field in rule['compound_compare_key']:
+                for key_field in query_key_values['aggregations']['key_values']['buckets']:
+                    key = key_field['key']
+
+                    req_body = {
+                        'sort': [{timestamp_field: {'order': 'desc'}}],
+                        'query': {"bool": {"must": [{'term': {rule['query_key']: key}},
+                                                    {'exists': {'field': field}},
+                                                    time_clause]}},
+                        'size': 1,
+                        'script_fields': {
+                            "compare_key_field": {"script": {"inline": "'{}'".format(field), "lang": "sonar"}}
+                        }
+                    }
+                    request.extend([req_head, req_body])
+            try:
+                resp = current_es.msearch(body=request)
+            except ElasticsearchException as e:
+                # Elasticsearch sometimes gives us GIGANTIC error messages
+                # (so big that they will fill the entire terminal buffer)
+                if len(str(e)) > 1024:
+                    e = str(e)[:1024] + '... (%d characters removed)' % (len(str(e)) - 1024)
+
+                elastalert_logger.error('Error getting query keys in timewindow for change rule: %s' % (e),
+                                        {'rule': rule['name'], 'query': request})
+                return None
+        else:
+            resp = {'responses': []}
+
+        return resp
+
+    def generate_item_clauses(self, resp, rule):
+        # Generate clauses that will match with any allowed values
+        item_clauses = []
+        for item in resp['responses']:
+            if item['hits']['hits']:
+                query_key_value = item['hits']['hits'][0]['_source'].get(rule['query_key'])
+                compare_key = item['hits']['hits'][0]['_source'].get('compare_key_field')
+                compare_key_value = item['hits']['hits'][0]['_source'].get(compare_key)
+
+                if not rule.get('ignore _null'):
+                    clause = {"bool": {"must": [
+                        {"match": {rule['query_key']: query_key_value}},
+                        {"match": {compare_key: compare_key_value}}
+                                               ]}}
+                else:  # Add the extra condition to ignore missing compare fields is ignore null is set
+                    clause = {"bool": {"must": [
+                        {"bool": {"should": [{"bool": {"must_not": [{"exists": {"field": compare_key}}]}},
+                                  {"match": {compare_key: compare_key_value}}]}},
+                        {"match": {rule['query_key']: query_key_value}}
+                                               ]}}
+                item_clauses.append(clause)
+
+        return item_clauses
