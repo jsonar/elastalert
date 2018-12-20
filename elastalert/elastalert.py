@@ -35,6 +35,7 @@ from elasticsearch.exceptions import TransportError
 from enhancements import DropMatchException
 from rule_type_definitions.frequency_rules import FlatlineRule
 from rule_type_definitions.compare_rules import BlacklistRule, WhitelistRule, ChangeRule
+from rule_type_definitions.cardinality_rule import CardinalityRule
 from saved_source_factory import SavedSourceFactory
 from util import add_raw_postfix
 from util import cronite_datetime_to_timestamp
@@ -1009,6 +1010,7 @@ class ElastAlerter():
         segment_size = self.get_segment_size(rule)
 
         tmp_endtime = rule['starttime']
+
 
         while endtime - rule['starttime'] > segment_size:
             tmp_endtime = tmp_endtime + segment_size

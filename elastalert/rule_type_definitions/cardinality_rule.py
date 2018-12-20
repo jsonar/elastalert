@@ -1,6 +1,6 @@
-
+from datetime import timedelta
 from elastalert.rule_type_definitions.ruletypes import RuleType
-from elastalert.util import EAException, dt_to_ts, hashable, lookup_es_key, pretty_ts, ts_to_dt
+from elastalert.util import EAException
 
 
 class CardinalityRule(RuleType):
@@ -16,62 +16,41 @@ class CardinalityRule(RuleType):
         self.cardinality_cache = {}
         self.first_event = {}
         self.timeframe = self.rules['timeframe']
+        self.rules['use_run_every_query_size'] = True
+        self.rules['realert'] = timedelta(0)
+        self.rules['aggregation_query_element'] = self.generate_aggregation_query()
 
-    def add_data(self, data):
+    def generate_aggregation_query(self):
         qk = self.rules.get('query_key')
-        for event in data:
-            if qk:
-                key = hashable(lookup_es_key(event, qk))
-            else:
-                # If no query_key, we use the key 'all' for all events
-                key = 'all'
-            self.cardinality_cache.setdefault(key, {})
-            self.first_event.setdefault(key, lookup_es_key(event, self.ts_field))
-            value = hashable(lookup_es_key(event, self.cardinality_field))
-            if value is not None:
-                # Store this timestamp as most recent occurence of the term
-                self.cardinality_cache[key][value] = lookup_es_key(event, self.ts_field)
-                self.check_for_match(key, event)
 
-    def check_for_match(self, key, event, gc=True):
-        # Check to see if we are past max/min_cardinality for a given key
-        time_elapsed = lookup_es_key(event, self.ts_field) - self.first_event.get(key, lookup_es_key(event, self.ts_field))
-        timeframe_elapsed = time_elapsed > self.timeframe
-        if (len(self.cardinality_cache[key]) > self.rules.get('max_cardinality', float('inf')) or
-                (len(self.cardinality_cache[key]) < self.rules.get('min_cardinality', float('-inf')) and timeframe_elapsed)):
-            # If there might be a match, run garbage collect first, as outdated terms are only removed in GC
-            # Only run it if there might be a match so it doesn't impact performance
-            if gc:
-                self.garbage_collect(lookup_es_key(event, self.ts_field))
-                self.check_for_match(key, event, False)
-            else:
-                self.first_event.pop(key, None)
-                self.add_match(event)
+        if qk:
 
-    def garbage_collect(self, timestamp):
-        """ Remove all occurrence data that is beyond the timeframe away """
-        for qk, terms in self.cardinality_cache.items():
-            for term, last_occurence in terms.items():
-                if timestamp - last_occurence > self.rules['timeframe']:
-                    self.cardinality_cache[qk].pop(term)
-
-            # Create a placeholder event for if a min_cardinality match occured
-            if 'min_cardinality' in self.rules:
-                event = {self.ts_field: timestamp}
-                if 'query_key' in self.rules:
-                    event.update({self.rules['query_key']: qk})
-                self.check_for_match(qk, event, False)
-
-    def get_match_str(self, match):
-        lt = self.rules.get('use_local_time')
-        starttime = pretty_ts(dt_to_ts(ts_to_dt(match[self.ts_field]) - self.rules['timeframe']), lt)
-        endtime = pretty_ts(match[self.ts_field], lt)
-        if 'max_cardinality' in self.rules:
-            message = ('A maximum of %d unique %s(s) occurred since last alert or between %s and %s\n\n' % (self.rules['max_cardinality'],
-                                                                                                            self.rules['cardinality_field'],
-                                                                                                            starttime, endtime))
+            agg_query = {'qk_agg': {'terms': {'field': qk},
+                                    "aggs": {'unique_values': {'cardinality': {'field': self.cardinality_field}}}}
+                         }
         else:
-            message = ('Less than %d unique %s(s) occurred since last alert or between %s and %s\n\n' % (self.rules['min_cardinality'],
-                                                                                                         self.rules['cardinality_field'],
-                                                                                                         starttime, endtime))
-        return message
+            agg_query = {'unique_values': {'cardinality': {'field': self.cardinality_field}}}
+
+        return agg_query
+
+    def add_aggregation_data(self, payload):
+        for timestamp, payload_data in payload.iteritems():
+            self.check_matches(timestamp, payload_data)
+
+    def check_matches(self, timestamp, aggregation_data):
+        if self.rules.get('query_key'):
+            for item in aggregation_data['bucket_aggs']['buckets']:
+                cardinality = int(item['qk_agg']['buckets'][0]['unique_values']['value'])
+                if not (self.rules.get('max_cardinality', float('inf')) >= cardinality >= self.rules.get('min_cardinality', -1)):
+                    key_value = item['qk_agg']['buckets'][0]['key']
+                    match = {self.rules['timestamp_field']: timestamp, "key": key_value, "cardinality": cardinality}
+                    self.add_match(match)
+        else:
+            if aggregation_data['unique_values']['value']:
+                cardinality = int(aggregation_data['unique_values']['value'])
+            else:
+                cardinality = 0
+            if not (self.rules.get('max_cardinality', float('inf')) >= cardinality >= self.rules.get('min_cardinality', -1)):
+                match = {self.rules['timestamp_field']: timestamp, "cardinality": cardinality}
+                self.add_match(match)
+
