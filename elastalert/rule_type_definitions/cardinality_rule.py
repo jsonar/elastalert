@@ -16,7 +16,7 @@ class CardinalityRule(RuleType):
         self.cardinality_cache = {}
         self.first_event = {}
         self.timeframe = self.rules['timeframe']
-        self.rules['use_run_every_query_size'] = True
+        # self.rules['use_run_every_query_size'] = True
         self.rules['realert'] = timedelta(0)
         self.rules['aggregation_query_element'] = self.generate_aggregation_query()
 

@@ -863,6 +863,8 @@ class ElastAlerter():
         elif rule.get('aggregation_query_element'):
             if rule.get('use_run_every_query_size'):
                 return self.get_run_every_segment_size(rule, starttime)
+            elif rule.get('timeframe'):
+                return rule['timeframe']
             else:
                 return rule.get('buffer_time', self.buffer_time)
         else:
@@ -875,7 +877,6 @@ class ElastAlerter():
 
             cron = croniter(rule['cron'], next_run)
             next_next_run = cron.get_next(datetime.datetime)
-
             return next_next_run - next_run
         else:
             return self.run_every
@@ -963,6 +964,8 @@ class ElastAlerter():
         except Exception as e:
             self.handle_uncaught_exception(e, rule)
         else:
+            if rule.get('timeframe') and rule.get('aggregation_query_element') and not rule.get('use_run_every_query_size'):
+                endtime = pretty_ts(rule.get('original_starttime') + rule.get('timeframe'), rule.get('use_local_time'))
             old_starttime = pretty_ts(rule.get('original_starttime'), rule.get('use_local_time'))
             elastalert_logger.info("Ran %s from %s to %s: %s query hits (%s already seen), %s matches,"
                                    " %s alerts sent" % (
@@ -1011,23 +1014,29 @@ class ElastAlerter():
 
         tmp_endtime = rule['starttime']
 
+        if not (rule.get('timeframe') and rule.get('aggregation_query_element')):
+            while endtime - rule['starttime'] > segment_size:
+                tmp_endtime = tmp_endtime + segment_size
+                elastalert_logger.info(
+                    "Segment Size: {}, from {}, to {}".format(segment_size, rule['starttime'], tmp_endtime))
+                if not self.run_query(rule, rule['starttime'], tmp_endtime):
+                    return 0
+                self.cumulative_hits += self.num_hits
+                self.num_hits = 0
+                rule['starttime'] = tmp_endtime
+                rule['type'].garbage_collect(tmp_endtime)
 
-        while endtime - rule['starttime'] > segment_size:
-            tmp_endtime = tmp_endtime + segment_size
-            elastalert_logger.info(
-                "Segment Size: {}, from {}, to {}".format(segment_size, rule['starttime'], tmp_endtime))
-            if not self.run_query(rule, rule['starttime'], tmp_endtime):
-                return 0
-            self.cumulative_hits += self.num_hits
-            self.num_hits = 0
-            rule['starttime'] = tmp_endtime
-            rule['type'].garbage_collect(tmp_endtime)
-
-            # Update segment_size since cron segment_size could vary.
-            segment_size = self.get_segment_size(rule, rule['starttime'])
+                # Update segment_size since cron segment_size could vary.
+                segment_size = self.get_segment_size(rule, rule['starttime'])
 
         if rule.get('aggregation_query_element'):
-            if endtime - tmp_endtime == segment_size:
+            if rule.get('timeframe') and not rule.get('use_run_every_query_size'):
+                endtime = rule['starttime'] + segment_size
+                tmp_endtime = endtime
+                elastalert_logger.warning('{} {}'.format(rule['starttime'], endtime))
+                self.run_query(rule, rule['starttime'], endtime)
+                self.cumulative_hits += self.num_hits
+            elif endtime - tmp_endtime == segment_size:
                 self.run_query(rule, tmp_endtime, endtime)
                 self.cumulative_hits += self.num_hits
             elif total_seconds(rule['original_starttime'] - tmp_endtime) == 0:
