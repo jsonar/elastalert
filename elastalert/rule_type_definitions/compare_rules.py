@@ -85,7 +85,8 @@ class BlacklistRule(CompareRule):
 
         self.item_clauses = self.generate_item_clauses(self.rules['blacklist'], self.rules['compare_key'])
 
-        self.rules['aggregation_query_element'] = self.generate_aggregation_query(self.rules['compare_key'])
+        if self.rules['bundle_alerts']:
+            self.rules['aggregation_query_element'] = self.generate_aggregation_query(self.rules['compare_key'])
 
     def compare(self, event):
         return True
@@ -105,7 +106,8 @@ class WhitelistRule(CompareRule):
         super(WhitelistRule, self).__init__(rules, args=None)
         self.expand_entries('whitelist')
         self.item_clauses = self.generate_item_clauses(self.rules['whitelist'], self.rules['compare_key'])
-        self.rules['aggregation_query_element'] = self.generate_aggregation_query(self.rules['compare_key'])
+        if self.rules['bundle_alerts']:
+            self.rules['aggregation_query_element'] = self.generate_aggregation_query(self.rules['compare_key'])
 
     def compare(self, event):
         return True
