@@ -858,13 +858,13 @@ class ElastAlerter():
     def get_segment_size(self, rule, starttime=datetime.datetime.utcnow()):
         """ The segment size is either buffer_size for queries which can overlap or run_every for queries
         which must be strictly separate. This mimicks the query size for when ElastAlert is running continuously. """
+        if rule.get('timeframe') and not rule.get('use_run_every_query_size'):
+            return rule['timeframe']
         if not rule.get('use_count_query') and not rule.get('use_terms_query') and not rule.get('aggregation_query_element'):
             return rule.get('buffer_time', self.buffer_time)
         elif rule.get('aggregation_query_element'):
             if rule.get('use_run_every_query_size'):
                 return self.get_run_every_segment_size(rule, starttime)
-            elif rule.get('timeframe'):
-                return rule['timeframe']
             else:
                 return rule.get('buffer_time', self.buffer_time)
         else:
@@ -1014,7 +1014,7 @@ class ElastAlerter():
 
         tmp_endtime = rule['starttime']
 
-        if not (rule.get('timeframe') and rule.get('aggregation_query_element')):
+        if not (rule.get('timeframe') or isinstance(rule['type'], ChangeRule)):
             while endtime - rule['starttime'] > segment_size:
                 tmp_endtime = tmp_endtime + segment_size
                 elastalert_logger.info(
@@ -1033,7 +1033,6 @@ class ElastAlerter():
             if rule.get('timeframe') and not rule.get('use_run_every_query_size'):
                 endtime = rule['starttime'] + segment_size
                 tmp_endtime = endtime
-                elastalert_logger.warning('{} {}'.format(rule['starttime'], endtime))
                 self.run_query(rule, rule['starttime'], endtime)
                 self.cumulative_hits += self.num_hits
             elif endtime - tmp_endtime == segment_size:
@@ -1052,6 +1051,7 @@ class ElastAlerter():
 
         # Process any new matches
         num_matches = len(rule['type'].matches)
+        elastalert_logger.warning(rule['type'].matches)
         while rule['type'].matches:
             match = rule['type'].matches.pop(0)
             match['num_hits'] = self.cumulative_hits
