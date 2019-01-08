@@ -568,7 +568,7 @@ class ElastAlerter():
         return {endtime: res['count']}
 
     def get_hits_terms(self, rule, starttime, endtime, index, key, qk=None, size=None):
-        rule = copy.deepcopy(rule)
+        rule = rule.copy()
 
         if 'filter' in rule:
             rule_filter = copy.copy(rule['filter'])

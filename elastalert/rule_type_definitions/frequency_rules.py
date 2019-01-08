@@ -169,3 +169,5 @@ class FlatlineRule(FrequencyRule):
                 ({self.ts_field: ts}, 0)
             )
             self.first_event.setdefault(key, ts)
+            if self.rules.get('query_key'):
+                self.check_for_match(key)
