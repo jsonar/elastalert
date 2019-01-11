@@ -25,7 +25,6 @@ class FrequencyRule(RuleType):
 
         event = ({self.ts_field: ts}, count)
         self.occurrences.setdefault('all', EventWindow(self.rules['timeframe'], getTimestamp=self.get_ts)).append(event)
-        elastalert_logger.warning('check for matches in add count data')
         self.check_for_match('all')
 
     def add_terms_data(self, terms):
@@ -34,7 +33,6 @@ class FrequencyRule(RuleType):
                 event = ({self.ts_field: timestamp,
                           self.rules['query_key']: bucket['key']}, bucket['doc_count'])
                 self.occurrences.setdefault(bucket['key'], EventWindow(self.rules['timeframe'], getTimestamp=self.get_ts)).append(event)
-                elastalert_logger.warning('check for matches in add terms data')
                 self.check_for_match(bucket['key'])
 
     def add_data(self, data):
@@ -52,13 +50,11 @@ class FrequencyRule(RuleType):
 
             # Store the timestamps of recent occurrences, per key
             self.occurrences.setdefault(key, EventWindow(self.rules['timeframe'], getTimestamp=self.get_ts)).append((event, 1))
-            elastalert_logger.warning('check for matches in add data 1')
             self.check_for_match(key, end=False)
 
         # We call this multiple times with the 'end' parameter because subclasses
         # may or may not want to check while only partial data has been added
         if key in self.occurrences:  # could have been emptied by previous check
-            elastalert_logger.warning('check for matches in add data 2')
             self.check_for_match(key, end=True)
 
     def check_for_match(self, key, end=False):
@@ -131,7 +127,6 @@ class FlatlineRule(FrequencyRule):
             # Do a deep-copy, otherwise we lose the datetime type in the timestamp field of the last event
             event = copy.deepcopy(self.occurrences[key].data[-1][0])
             event.update(key=key, count=count)
-            elastalert_logger.warning('event: {}'.format(event))
             self.add_match(event)
 
             if not self.rules.get('forget_keys'):

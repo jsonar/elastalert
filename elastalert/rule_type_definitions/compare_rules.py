@@ -66,12 +66,16 @@ class CompareRule(RuleType):
                 self.add_match(event)
 
     def add_aggregation_data(self, payload):
+        elastalert_logger.warning('aggregation data payload: {}'.format(payload))
         for timestamp, payload_data in payload.iteritems():
             self.check_matches(timestamp, payload_data)
 
     def check_matches(self, timestamp, aggregation_data):
         for item in aggregation_data['{}'.format(self.agg_key)]['buckets']:
-            match = {self.rules['timestamp_field']: timestamp, self.agg_key: item['key'], "doc_count": item['doc_count']}
+            # match = {self.rules['timestamp_field']: timestamp, self.agg_key: item['key'], "doc_count": item['doc_count']}
+            match = {'timestamp_field': self.rules['timestamp_field'], 'timestamp': timestamp,
+                     'watched_field': self.agg_key, 'watched_field_value': item['key'], "doc_count": item['doc_count']}
+            elastalert_logger.warning('match in check matches {}'.format(match))
             self.add_match(match)
 
 
@@ -152,6 +156,7 @@ class ChangeRule(CompareRule):
     def get_query_keys_in_timewindow(self, current_es, query, rule, timestamp_field, starttime, endtime, index):
         # Find what values of query key are inside the queried time range
         try:
+            #if rule.get('timeframe'):
             query_key_terms_query = {'query': {'bool': {'must': [
                 {'range': {timestamp_field: {'gt': starttime, 'lte': endtime}}}]}},
                 "aggs": {"key_values": {"terms": {"field": rule['query_key']}}}}

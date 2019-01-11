@@ -711,6 +711,7 @@ class ElastAlerter():
         :param end: The latest time to query.
         Returns True on success and False on failure.
         """
+        elastalert_logger.warning('actually running query')
         if start is None:
             start = self.get_index_start(get_index_util(rule))
         if end is None:
@@ -720,12 +721,16 @@ class ElastAlerter():
         rule_inst = rule['type']
         index = self.get_index(rule, start, end)
         if rule.get('use_count_query'):
+            elastalert_logger.warning('using coutn query')
             data = self.get_hits_count(rule, start, end, index)
         elif rule.get('use_terms_query'):
+            elastalert_logger.warning('using terms query')
             data = self.get_hits_terms(rule, start, end, index, rule['query_key'])
         elif rule.get('aggregation_query_element'):
+            elastalert_logger.warning('using agg query')
             data = self.get_hits_aggregation(rule, start, end, index, rule.get('query_key', None))
         else:
+            elastalert_logger.warning('other query')
             data = self.get_hits(rule, start, end, index, scroll)
             if data:
                 old_len = len(data)
@@ -796,7 +801,7 @@ class ElastAlerter():
             if not rule.get('scan_entire_timeframe'):
                 # Try to get the last run from Elasticsearch
                 last_run_end = self.get_starttime(rule)
-                if last_run_end:
+                if last_run_end: # TODO fix this so that blacklist ect when re-enabled don't run from too far back
                     rule['starttime'] = last_run_end
                     self.adjust_start_time_for_overlapping_agg_query(rule)
                     self.adjust_start_time_for_interval_sync(rule, endtime)
@@ -808,8 +813,11 @@ class ElastAlerter():
 
         if not rule.get('use_count_query') and not rule.get('use_terms_query'):
             if not rule.get('scan_entire_timeframe'):
-                buffer_time = rule.get('buffer_time', self.buffer_time)
-                buffer_delta = endtime - buffer_time
+                if not rule.get('use_run_every_query_size'):  # TODO maybe remove buffer time entirely
+                    buffer_time = rule.get('buffer_time', self.buffer_time)
+                    buffer_delta = endtime - buffer_time
+                else:
+                    buffer_delta = endtime - self.get_segment_size(rule)
             else:
                 buffer_delta = endtime - rule['timeframe']
             # If we started using a previous run, don't go past that
@@ -1014,8 +1022,11 @@ class ElastAlerter():
 
         tmp_endtime = rule['starttime']
 
-        if not (rule.get('timeframe') or isinstance(rule['type'], ChangeRule)):
-            while endtime - rule['starttime'] > segment_size:
+        # TODO make this section less convoluted
+        elastalert_logger.warning(not (rule.get('timeframe') or isinstance(rule['type'], ChangeRule)))
+        if not rule.get('timeframe') or isinstance(rule['type'], ChangeRule):
+            elastalert_logger.warning('entering loop_________________________________________________-')
+            while endtime - rule['starttime'] >= segment_size:
                 tmp_endtime = tmp_endtime + segment_size
                 elastalert_logger.info(
                     "Segment Size: {}, from {}, to {}".format(segment_size, rule['starttime'], tmp_endtime))
@@ -1028,22 +1039,27 @@ class ElastAlerter():
 
                 # Update segment_size since cron segment_size could vary.
                 segment_size = self.get_segment_size(rule, rule['starttime'])
+            endtime = tmp_endtime
 
         if rule.get('aggregation_query_element'):
             if rule.get('timeframe') and not rule.get('use_run_every_query_size'):
+                elastalert_logger.warning('timeframe/agg section')
                 endtime = rule['starttime'] + segment_size
-                tmp_endtime = endtime
                 self.run_query(rule, rule['starttime'], endtime)
                 self.cumulative_hits += self.num_hits
             elif endtime - tmp_endtime == segment_size:
+                elastalert_logger.warning('agg section 2')
                 self.run_query(rule, tmp_endtime, endtime)
                 self.cumulative_hits += self.num_hits
             elif total_seconds(rule['original_starttime'] - tmp_endtime) == 0:
+                elastalert_logger.warning('agg section 3')
                 rule['starttime'] = rule['original_starttime']
                 return 0
             else:
+                elastalert_logger.warning('agg section 4')
                 endtime = tmp_endtime
         else:
+            elastalert_logger.warning('not an agg query')
             if not self.run_query(rule, rule['starttime'], endtime):
                 return 0
             self.cumulative_hits += self.num_hits
@@ -1051,7 +1067,6 @@ class ElastAlerter():
 
         # Process any new matches
         num_matches = len(rule['type'].matches)
-        elastalert_logger.warning(rule['type'].matches)
         while rule['type'].matches:
             match = rule['type'].matches.pop(0)
             match['num_hits'] = self.cumulative_hits

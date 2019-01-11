@@ -38,6 +38,14 @@ from util import resolve_string
 from util import ts_now
 from util import ts_to_dt
 
+from rule_type_definitions.aggregation_rules import MetricAggregationRule, PercentageMatchRule
+from rule_type_definitions.any_rule import AnyRule
+from rule_type_definitions.cardinality_rule import CardinalityRule
+from rule_type_definitions.compare_rules import BlacklistRule, WhitelistRule, ChangeRule
+from rule_type_definitions.frequency_rules import FrequencyRule, FlatlineRule
+from rule_type_definitions.new_terms_rule import NewTermsRule
+from rule_type_definitions.spike_rule import SpikeRule
+
 
 class DateTimeEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -165,13 +173,132 @@ class SonarFormattedMatchString:
         self.match_time = match_time
 
     def __str__(self):
-        text = "Rule \"{}\" generated an alert at {}.".format(self.rule['name'], self.match_time)
+        # TODO consider moving these to the rules themselves?
+        text = "Rule \"{}\" generated an alert at {}.  ".format(self.rule['name'], self.match_time)
+        # TODO add timeframe or at lest start and end time info to alert
+        if isinstance(self.rule['type'], BlacklistRule):
+            text += "{} occurrences of blacklisted value {} occurred in field {}".format(
+                self.match['doc_count'], self.match['watched_field_value'], self.match['watched_field'])
 
-        if 'num_hits' in self.match:
-            text += " This alert contains {} document hit(s).".format(self.match['num_hits'])
+        elif isinstance(self.rule['type'], WhitelistRule):
+            text += "{} occurrences of non-whitelisted value {} occurred in field {}".format(
+                self.match['doc_count'], self.match['watched_field_value'], self.match['watched_field'])
+
+        elif isinstance(self.rule['type'], FlatlineRule):
+            text += "{} documents in timeframe. Minimum of {} expected".format(self.match['num_hits'],
+                                                                               self.rule['threshold'])
+        elif isinstance(self.rule['type'], ChangeRule):
+            text += "The values of {0} for value {1} of query key {2} contain {3} entries that differ from the value " \
+                    "of {0} when the rule last ran".format(self.rule['compare_key'], self.match['watched_field_value'],
+                                                           self.rule['query_key'], self.match['doc_count'])
+
+        elif isinstance(self.rule['type'], FrequencyRule):
+            text += "{} documents in timeframe. Maximum of {} expected".format(self.match['num_hits'],
+                                                                               self.rule['num_events'])
+        elif isinstance(self.rule['type'], SpikeRule):
+            text += "{} hits in spike. {} hits in previous window".format(self.match['spike_count'],
+                                                                          self.match['reference_count'])
+        elif isinstance(self.rule['type'], CardinalityRule):
+            if self.rule.get('query_key'):
+                text += "Cardinality of field {} for value {} of query key {} is {}. This is not between {} and {}".format(
+                    self.rule['cardinality_field'], self.match['key'], self.rule['query_key'], self.match['cardinality'],
+                        self.rule['min_cardinality'], self.rule['max_cardinality'])
+            else:
+                text += "Cardinality of field {} is {}. This is not between {} and {}".format(
+                    self.rule['cardinality_field'], self.match['cardinality'],
+                        self.rule['min_cardinality'], self.rule['max_cardinality'])
+
+        elif isinstance(self.rule['type'], NewTermsRule):  # TODO why doesn't this trigger
+            text += '{} '
+
+        elif isinstance(self.rule['type'], MetricAggregationRule):
+            text += '{} is the {} of field {}. This is not between {} and {}'.format(
+                self.match['{}_{}'.format(self.rule['metric_agg_key'], self.rule['metric_agg_type'])],
+                self.rule['metric_agg_type'], self.rule['metric_agg_key'], self.rule['min_threshold'],
+                self.rule['max_threshold']
+            )
 
         return text
 
+
+class SyslogFormattedMatch:
+    def __init__(self, rule, match, match_time):
+        self.rule = rule
+        self.match = match
+        self.match_time = match_time
+        # TODO get needed info from dispatcher
+        self.output_format = 'json'
+
+        self.vendor = 'jSonar'
+        self.product = 'SonarK'
+        self.version = os.environ['SONARK_VERSION']
+
+    def output_alert(self):
+        if self.output_format == 'json':
+            self.output_json()
+        elif self.output_format == 'cef':
+            self.output_json()
+        elif self.output_format =='leef':
+            self.output_leef()
+
+    def output_json(self):
+        out_json = {'rule': self.rule['name'],'match_time': self.match_time}
+        if isinstance(self.rule['type'], BlacklistRule):
+            out_json.update({ 'blacklist_field': self.match['watched_field'],
+                        'blacklisted_value':self.match['watched_field_value'],
+                              'occurrences':self.match['doc_count']})
+
+        elif isinstance(self.rule['type'], WhitelistRule):
+            out_json.update({'whitelist_field': self.match['watched_field'],
+                        'non-whitelist_value':self.match['watched_field_value'],
+                             'occurrences':self.match['doc_count']})
+
+        elif isinstance(self.rule['type'], FlatlineRule):
+            out_json.update({'num_hits': self.match['num_hits'], 'threshold': self.rule['threshold']})
+
+        elif isinstance(self.rule['type'], ChangeRule):
+            out_json.update({'compare_key': self.rule['compare_key'],
+                             'query_key': self.rule['query_key'],
+                             'query_key_value': self.match['watched_field_value'],
+                             'num_changed_values': self.match['doc_count']})
+
+        elif isinstance(self.rule['type'], FrequencyRule):
+            out_json.update({'frequency': self.match['num_hits'], 'threshold': self.rule['num_events']})
+
+        elif isinstance(self.rule['type'], SpikeRule):
+            out_json.update({'spike_window_hits':self.match['spike_count'],
+                             'reference_window_hits':self.match['reference_count']})
+
+        elif isinstance(self.rule['type'], CardinalityRule):
+            if self.rule.get('query_key'):
+                out_json.update({'cardinality_field': self.rule['cardinality_field'],
+                                 'cardinality': self.match['cardinality'],
+                                 'min_cardinality': self.rule['min_cardinality'],
+                                 'max_cardinality': self.rule['min_cardinality'],
+                                 'query_key': self.rule['query_key'],
+                                 'query_key_value': self.match['key']
+                                 })
+            else:
+                text += "Cardinality of field {} is {}. This is not between {} and {}".format(
+                    self.rule['cardinality_field'], self.match['cardinality'],
+                        self.rule['min_cardinality'], self.rule['max_cardinality'])
+
+        elif isinstance(self.rule['type'], NewTermsRule):  # TODO add this once the rule works
+            text += '{} '
+
+        elif isinstance(self.rule['type'], MetricAggregationRule):
+            text += '{} is the {} of field {}. This is not between {} and {}'.format(
+                self.match['{}_{}'.format(self.rule['metric_agg_key'], self.rule['metric_agg_type'])],
+                self.rule['metric_agg_type'], self.rule['metric_agg_key'], self.rule['min_threshold'],
+                self.rule['max_threshold']
+            )
+
+
+    def output_cef(self):
+        # CEF:0|Device Vendor|Device Product|Device Version|Signature ID|Name|Severity|Extension cs2=value1 cs2Label=label1 cs3=value2 cs3Label=label2
+
+    def output_leef(self):
+        # LEEF:2 | Vendor | Product | Version | EventID |\tkey1=value1\tkey2=value2
 
 class Alerter(object):
     """ Base class for types of alerts.
@@ -415,6 +542,7 @@ class SyslogAlerter(Alerter):
         self.logger = logging.getLogger('SonarKAlertsLogger')
         self.logger.setLevel(logging.INFO)
 
+        # TODO use dispatcher for sending to syslog
         syslog_host = os.environ.get('plugins.alerts.syslog.host', 'localhost')
         syslog_port = int(os.environ.get('plugins.alerts.syslog.port', 514))
         self.logger_handler = logging.handlers.SysLogHandler(address=(syslog_host, syslog_port))
@@ -443,6 +571,9 @@ class SonarDispatcherAlerter(Alerter):
         self.es_client = elasticsearch_client(self.rule)
 
     def alert(self, matches, alert_time):
+        # TODO bundle alerts for emailing
+        #if self.rule['bundle_alerts']:
+        elastalert_logger.warning('matches: {}'.format(matches))
         for match in matches:
             self.es_client.index(
                 'lmrm__scheduler-lmrm__dispatched_jobs',
