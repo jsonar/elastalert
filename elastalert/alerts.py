@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import ConfigParser
 import copy
 import datetime
 import json
@@ -8,6 +9,8 @@ import os
 import subprocess
 import sys
 import time
+import urllib
+import urlparse
 import warnings
 from email.mime.text import MIMEText
 from email.utils import formatdate
@@ -21,6 +24,7 @@ from socket import error
 import boto3
 import requests
 import stomp
+import pymongo
 from exotel import Exotel
 from jira.client import JIRA
 from jira.exceptions import JIRAError
@@ -29,6 +33,9 @@ from staticconf.loader import yaml_loader
 from texttable import Texttable
 from twilio.base.exceptions import TwilioRestException
 from twilio.rest import Client as TwilioClient
+
+from constants import DISPATCHER_CONF, SYSLOG_DEFAULT_HOST, SYSLOG_DEFAULT_PORT, SYSLOG_DEFAULT_PROTOCOL
+
 from util import EAException
 from util import elasticsearch_client
 from util import elastalert_logger
@@ -222,26 +229,42 @@ class SonarFormattedMatchString:
 
 
 class SyslogFormattedMatch:
-    def __init__(self, rule, match, match_time):
+    def __init__(self, rule, match, match_time, dispatch_config, sonar_con):
         self.rule = rule
         self.match = match
         self.match_time = match_time
-        # TODO get needed info from dispatcher
-        self.output_format = 'json'
+        self.sonar_con = sonar_con
+
+        try:
+            self.syslog_host = dispatch_config.get('remote_syslog', 'host')
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError) as e:
+            self.syslog_host = SYSLOG_DEFAULT_HOST
+
+        try:
+            self.syslog_port = dispatch_config.get('remote_syslog', 'port')
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError) as e:
+            self.syslog_port = SYSLOG_DEFAULT_PORT
+
+        try:
+            self.syslog_protocol = dispatch_config.get('remote_syslog', 'protocol')
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError) as e:
+            self.syslog_protocol = SYSLOG_DEFAULT_PROTOCOL
+        self.output_format = 'json' # TODO get output format from engine
 
         self.vendor = 'jSonar'
         self.product = 'SonarK'
-        self.version = os.environ['SONARK_VERSION']
+        # self.version = os.environ['SONARK_VERSION'] # TODO make sure this is implimented
+        self.version ='0.x'
 
     def output_alert(self):
         if self.output_format == 'json':
             self.output_json()
         elif self.output_format == 'cef':
-            self.output_json()
+            self.output_cef()
         elif self.output_format =='leef':
             self.output_leef()
 
-    def output_json(self):
+    def generate_base_json(self):
         out_json = {'rule': self.rule['name'],'match_time': self.match_time}
         if isinstance(self.rule['type'], BlacklistRule):
             out_json.update({ 'blacklist_field': self.match['watched_field'],
@@ -279,26 +302,60 @@ class SyslogFormattedMatch:
                                  'query_key_value': self.match['key']
                                  })
             else:
-                text += "Cardinality of field {} is {}. This is not between {} and {}".format(
-                    self.rule['cardinality_field'], self.match['cardinality'],
-                        self.rule['min_cardinality'], self.rule['max_cardinality'])
+                out_json.update({'cardinality_field': self.rule['cardinality_field'],
+                                 'cardinality': self.match['cardinality'],
+                                 'min_cardinality': self.rule['min_cardinality'],
+                                 'max_cardinality': self.rule['min_cardinality']
+                                 })
 
         elif isinstance(self.rule['type'], NewTermsRule):  # TODO add this once the rule works
-            text += '{} '
+            out_json.update({})
 
         elif isinstance(self.rule['type'], MetricAggregationRule):
-            text += '{} is the {} of field {}. This is not between {} and {}'.format(
-                self.match['{}_{}'.format(self.rule['metric_agg_key'], self.rule['metric_agg_type'])],
-                self.rule['metric_agg_type'], self.rule['metric_agg_key'], self.rule['min_threshold'],
-                self.rule['max_threshold']
-            )
+            out_json.update({'metric-agg_result': self.match['{}_{}'.format(self.rule['metric_agg_key'], self.rule['metric_agg_type'])],
+                             'metric_agg_type': self.rule['metric_agg_type'],
+                             'metric_agg_key': self.rule['metric_agg_key'],
+                             'min_threshold': self.rule['min_threshold'],
+                             'max_threshold': self.rule['max_threshold']
+                             })
+        return out_json
+
+    def output_json(self):
+        out_json = self.generate_base_json()
+        sonargd = self.sonar_con['sonargd']
+        alerts_collection = sonargd['tmp_alert']
+        alerts_collection.insert_one(out_json)
+        elastalert_logger.warning(list(alerts_collection.aggregate([{'$project':{'*':1}},
+        {'$out':{
+                'format':'json',
+                'fstype':'syslog',
+                'syslog_params': {
+                        'sendto':self.syslog_host,
+                        'loglevel':'notice',
+                        'facility': 'user',
+                        'protocol':self.syslog_protocol,
+                        'port':self.syslog_port
+                }}}])))
+        sonargd.drop_collection('tmp_alert')
 
 
     def output_cef(self):
+        pass
         # CEF:0|Device Vendor|Device Product|Device Version|Signature ID|Name|Severity|Extension cs2=value1 cs2Label=label1 cs3=value2 cs3Label=label2
 
     def output_leef(self):
         # LEEF:2 | Vendor | Product | Version | EventID |\tkey1=value1\tkey2=value2
+        out_json = self.generate_base_json()
+        sonargd = self.sonar_con['sonargd']
+        alerts_collection = sonargd['tmp_alert']
+        alerts_collection.insert_one(out_json)
+        elastalert_logger.warning('inserted document to output')
+        alerts_collection.aggregate([{'$project':{'*': 1}},
+        {"$out": {"format": "leef", "fstype": "syslog", 'product': 'SonarK', 'product_version': self.version,
+                  "syslog_params": {"protocol": self.syslog_protocol,
+                                    "sendto": self.syslog_host, "port": self.syslog_port, "loglevel": "notice"}}}])
+
+        sonargd.drop_collection('tmp_alert')
 
 class Alerter(object):
     """ Base class for types of alerts.
@@ -313,6 +370,10 @@ class Alerter(object):
         # and attached to each alerters used by a rule before calling alert()
         self.pipeline = None
         self.resolve_rule_references(self.rule)
+        self.dispatch_conf = ConfigParser.ConfigParser()
+        self.dispatch_conf.read(DISPATCHER_CONF)
+        self.sonar_uri = self.dispatch_conf.get('dispatch','sonarw_uri')
+        self.sonar_con = self.get_sonar_connection(self.sonar_uri)
 
     def resolve_rule_references(self, root):
         # Support referencing other top-level rule properties to avoid redundant copy/paste
@@ -340,6 +401,50 @@ class Alerter(object):
                 return self.rule[strValue[1:-1]]
         else:
             return value
+
+    def get_sonar_connection(self, uri):
+        """
+        Opens a sonar client using the specified uri, and reads the database names from sonar to check that the
+        connection is actually open.
+        :param uri: string in mongo uri format. Normally uses the internal user with the following format:
+        "mongodb://CN=admin@localhost:27117/admin?authSource=$external&authMechanism=PLAIN&certfile=/etc/sonar/ssl/client/admin/cert.pem"
+        :return: sonar client
+        """
+        client = pymongo.MongoClient(self.manipulate_uri(uri))
+        out = client.database_names()
+
+        return client
+
+    def manipulate_uri(self, uri):
+        p = urlparse.urlparse(uri)
+        if not p.password and p.query:
+            password = None
+            qs = urlparse.parse_qs(p.query)
+            if 'certfile' in qs:
+                # password is certfile, with newlines replaced by backslash n
+                password = r'\n'.join([l.rstrip('\n')
+                                       for l in open(qs['certfile'][0], 'r')])
+                del qs['certfile']
+            uri = urlparse.urlunparse((p.scheme,
+                                       self.netloc_with_password(p, password),
+                                       p.path,
+                                       p.params,
+                                       urllib.urlencode(qs, doseq=True),
+                                       p.fragment))
+        return uri
+
+    @staticmethod
+    def netloc_with_password(p, password):
+        ret = ''
+        if p.username:
+            ret += p.username
+            if password:
+                ret += ':' + urllib.quote(password, safe='')
+            ret += '@'
+        ret += p.hostname
+        if p.port:
+            ret += ':' + str(p.port)
+        return ret
 
     def alert(self, match):
         """ Send an alert. Match is a dictionary of information about the alert.
@@ -550,7 +655,9 @@ class SyslogAlerter(Alerter):
 
     def alert(self, matches, alert_time):
         for match in matches:
-            self.logger.info(str(SonarFormattedMatchString(self.rule, match, alert_time)))
+            output = SyslogFormattedMatch(self.rule, match, alert_time, self.dispatch_conf, self.sonar_con)
+            output.output_alert()
+            #self.logger.info(str(SonarFormattedMatchString(self.rule, match, alert_time)))
             elastalert_logger.info('Alert sent to Syslog')
 
     def get_info(self):
