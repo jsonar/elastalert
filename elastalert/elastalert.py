@@ -424,7 +424,6 @@ class ElastAlerter():
             index=index
         )
         elastalert_logger.warning('query: {}'.format(query))
-        elastalert_logger.warning('rule: {}'.format(rule))
         extra_args = {'_source_include': rule['include']}
         scroll_keepalive = rule.get('scroll_keepalive', self.scroll_keepalive)
         if not rule.get('_source_enabled'):
@@ -482,6 +481,7 @@ class ElastAlerter():
         # Record doc_type for use in get_top_counts
         if 'doc_type' not in rule and len(hits):
             rule['doc_type'] = hits[0]['_type']
+        elastalert_logger.warning('hits: {}'.format(hits))
         return hits
 
     def get_hits_count(self, rule, starttime, endtime, index):

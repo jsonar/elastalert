@@ -259,7 +259,7 @@ class SyslogFormattedMatch:
             self.syslog_host = SYSLOG_DEFAULT_HOST
 
         try:
-            self.syslog_port = dispatch_config.get('remote_syslog', 'port')
+            self.syslog_port = dispatch_config.get('remote_syslog', 'port')  # TODO current config fields right
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             self.syslog_port = SYSLOG_DEFAULT_PORT
 
@@ -696,24 +696,15 @@ class DebugAlerter(Alerter):
 
 
 class SyslogAlerter(Alerter):
-    """Sends payloads to sonar gateway."""
+    """Sends payloads to rsyslog/sonar gateway."""
 
     def __init__(self, *args):
         super(SyslogAlerter, self).__init__(*args)
-        self.logger = logging.getLogger('SonarKAlertsLogger')
-        self.logger.setLevel(logging.INFO)
-
-        # TODO use dispatcher for sending to syslog
-        syslog_host = os.environ.get('plugins.alerts.syslog.host', 'localhost')
-        syslog_port = int(os.environ.get('plugins.alerts.syslog.port', 514))
-        self.logger_handler = logging.handlers.SysLogHandler(address=(syslog_host, syslog_port))
-        self.logger.addHandler(self.logger_handler)
 
     def alert(self, matches, alert_time):
         for match in matches:
             output = SyslogFormattedMatch(self.rule, match, alert_time, self.dispatch_conf, self.sonar_con)
             output.output_alert()
-            #self.logger.info(str(SonarFormattedMatchString(self.rule, match, alert_time)))
             elastalert_logger.info('Alert sent to Syslog')
 
     def get_info(self):
