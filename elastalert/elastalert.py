@@ -423,6 +423,8 @@ class ElastAlerter():
             five=rule['five'],
             index=index
         )
+        elastalert_logger.warning('query: {}'.format(query))
+        elastalert_logger.warning('rule: {}'.format(rule))
         extra_args = {'_source_include': rule['include']}
         scroll_keepalive = rule.get('scroll_keepalive', self.scroll_keepalive)
         if not rule.get('_source_enabled'):

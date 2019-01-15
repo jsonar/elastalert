@@ -207,9 +207,13 @@ class SonarFormattedMatchString:
                                                                           self.match['reference_count'])
         elif isinstance(self.rule['type'], CardinalityRule):
             if self.rule.get('query_key'):
-                text += "Cardinality of field {} for value {} of query key {} is {}. This is not between {} and {}".format(
-                    self.rule['cardinality_field'], self.match['key'], self.rule['query_key'], self.match['cardinality'],
-                        self.rule['min_cardinality'], self.rule['max_cardinality'])
+                text += "Cardinality of field {} for value {} of query key {} is {}. " \
+                        "This is not between {} and {}".format(self.rule['cardinality_field'],
+                                                               self.match['key'],
+                                                               self.rule['query_key'],
+                                                               self.match['cardinality'],
+                                                               self.rule['min_cardinality'],
+                                                               self.rule['max_cardinality'])
             else:
                 text += "Cardinality of field {} is {}. This is not between {} and {}".format(
                     self.rule['cardinality_field'], self.match['cardinality'],
@@ -229,52 +233,71 @@ class SonarFormattedMatchString:
 
 
 class SyslogFormattedMatch:
+    """Object containing the data and instructions on formatting needed to output messages to syslog in
+    cef, leef or json format. It does this using the $out functionality of sonar, by storing the necessary data in a
+    collection and then projecting all fields of the temporary collection to an out stage configured to send the data
+    onwards to syslog in the appropriate format"""
     def __init__(self, rule, match, match_time, dispatch_config, sonar_con):
+        """
+
+        :param rule: The rule dictionary containing the parameters of the running rule
+        :param match: Information about what triggered this alert. Contents vary by rule type.
+        :param match_time: When did the event that set off this alert occur
+        :param dispatch_config: config parser loaded from dispatcher.conf
+        :param sonar_con: Pymongo connection to sonar
+        """
         self.rule = rule
         self.match = match
         self.match_time = match_time
         self.sonar_con = sonar_con
+        self.sonargd = self.sonar_con['sonargd']
+        self.alerts_collection = self.sonargd['tmp_alert']
 
         try:
             self.syslog_host = dispatch_config.get('remote_syslog', 'host')
-        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError) as e:
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             self.syslog_host = SYSLOG_DEFAULT_HOST
 
         try:
             self.syslog_port = dispatch_config.get('remote_syslog', 'port')
-        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError) as e:
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             self.syslog_port = SYSLOG_DEFAULT_PORT
 
         try:
             self.syslog_protocol = dispatch_config.get('remote_syslog', 'protocol')
-        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError) as e:
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             self.syslog_protocol = SYSLOG_DEFAULT_PROTOCOL
-        self.output_format = 'json' # TODO get output format from engine
+        self.output_format = 'json'  # TODO get output format from engine
 
         self.vendor = 'jSonar'
         self.product = 'SonarK'
-        # self.version = os.environ['SONARK_VERSION'] # TODO make sure this is implimented
-        self.version ='0.x'
+        try:
+            self.version = os.environ['SONARK_VERSION']  # TODO make sure this is implemented
+        except KeyError:
+            self.version = 'unknown_version'
 
     def output_alert(self):
         if self.output_format == 'json':
             self.output_json()
         elif self.output_format == 'cef':
             self.output_cef()
-        elif self.output_format =='leef':
+        elif self.output_format == 'leef':
             self.output_leef()
 
     def generate_base_json(self):
-        out_json = {'rule': self.rule['name'],'match_time': self.match_time}
+        """"
+        Inserts a json document containing the rule specific information about the event that triggered the alert
+        """
+        out_json = {'rule': self.rule['name'], 'match_time': self.match_time}
         if isinstance(self.rule['type'], BlacklistRule):
-            out_json.update({ 'blacklist_field': self.match['watched_field'],
-                        'blacklisted_value':self.match['watched_field_value'],
-                              'occurrences':self.match['doc_count']})
+            out_json.update({'blacklist_field': self.match['watched_field'],
+                             'blacklisted_value': self.match['watched_field_value'],
+                             'occurrences': self.match['doc_count']})
 
         elif isinstance(self.rule['type'], WhitelistRule):
             out_json.update({'whitelist_field': self.match['watched_field'],
-                        'non-whitelist_value':self.match['watched_field_value'],
-                             'occurrences':self.match['doc_count']})
+                             'non-whitelist_value': self.match['watched_field_value'],
+                             'occurrences': self.match['doc_count']})
 
         elif isinstance(self.rule['type'], FlatlineRule):
             out_json.update({'num_hits': self.match['num_hits'], 'threshold': self.rule['threshold']})
@@ -289,8 +312,8 @@ class SyslogFormattedMatch:
             out_json.update({'frequency': self.match['num_hits'], 'threshold': self.rule['num_events']})
 
         elif isinstance(self.rule['type'], SpikeRule):
-            out_json.update({'spike_window_hits':self.match['spike_count'],
-                             'reference_window_hits':self.match['reference_count']})
+            out_json.update({'spike_window_hits': self.match['spike_count'],
+                             'reference_window_hits': self.match['reference_count']})
 
         elif isinstance(self.rule['type'], CardinalityRule):
             if self.rule.get('query_key'):
@@ -312,50 +335,83 @@ class SyslogFormattedMatch:
             out_json.update({})
 
         elif isinstance(self.rule['type'], MetricAggregationRule):
-            out_json.update({'metric-agg_result': self.match['{}_{}'.format(self.rule['metric_agg_key'], self.rule['metric_agg_type'])],
+            out_json.update({'metric-agg_result': self.match['{}_{}'.format(self.rule['metric_agg_key'],
+                                                                            self.rule['metric_agg_type'])],
                              'metric_agg_type': self.rule['metric_agg_type'],
                              'metric_agg_key': self.rule['metric_agg_key'],
                              'min_threshold': self.rule['min_threshold'],
                              'max_threshold': self.rule['max_threshold']
                              })
+
+        self.alerts_collection.insert_one(out_json)
+
         return out_json
 
-    def output_json(self):
-        out_json = self.generate_base_json()
-        sonargd = self.sonar_con['sonargd']
-        alerts_collection = sonargd['tmp_alert']
-        alerts_collection.insert_one(out_json)
-        elastalert_logger.warning(list(alerts_collection.aggregate([{'$project':{'*':1}},
-        {'$out':{
-                'format':'json',
-                'fstype':'syslog',
-                'syslog_params': {
-                        'sendto':self.syslog_host,
-                        'loglevel':'notice',
-                        'facility': 'user',
-                        'protocol':self.syslog_protocol,
-                        'port':self.syslog_port
-                }}}])))
-        sonargd.drop_collection('tmp_alert')
+    def drop_tmp_collection(self):
+        self.sonargd.drop_collection('tmp_alert')
 
+    def output_json(self):
+        self.generate_base_json()
+
+        self.alerts_collection.aggregate([{'$project': {'*': 1}},
+                                          {'$out': {
+                                                'format': 'json',
+                                                'fstype': 'syslog',
+                                                'syslog_params': {
+                                                        'sendto': self.syslog_host,
+                                                        'loglevel': 'notice',
+                                                        'facility': 'user',
+                                                        'protocol': self.syslog_protocol,
+                                                        'port': self.syslog_port
+                                                }}}]
+
+                                         )
+        self.drop_tmp_collection()
 
     def output_cef(self):
-        pass
-        # CEF:0|Device Vendor|Device Product|Device Version|Signature ID|Name|Severity|Extension cs2=value1 cs2Label=label1 cs3=value2 cs3Label=label2
+        # CEF:0|Device Vendor|Device Product|Device Version|Signature ID|Name|Severity|Extension
+        self.generate_base_json()
+        doc = self.alerts_collection.find_one()
+        rule_name = doc['rule']
+        match_time = doc['match_time']
+        self.alerts_collection.aggregate([
+            {'$addFields': {'end': match_time}},
+            {"$project": {"*": 1, 'rule': 0, 'match_time': 0}},
+            {'$out': {
+                     "fstype": "syslog",
+                     'syslog_params': {
+                         'sendto': self.syslog_host,
+                         'loglevel': 'notice',
+                         'facility': 'user',
+                         'protocol': self.syslog_protocol,
+                         'port': self.syslog_port
+                     },
+                     "format": "cef",
+                     "cef_params": {
+                         "vendor": self.vendor,
+                         "product": self.product,
+                         "product_version": self.version,
+                         'name': rule_name,
+                         "ignore_fields": ["_id"]
+                     }}}])
+        self.drop_tmp_collection()
 
     def output_leef(self):
         # LEEF:2 | Vendor | Product | Version | EventID |\tkey1=value1\tkey2=value2
-        out_json = self.generate_base_json()
-        sonargd = self.sonar_con['sonargd']
-        alerts_collection = sonargd['tmp_alert']
-        alerts_collection.insert_one(out_json)
-        elastalert_logger.warning('inserted document to output')
-        alerts_collection.aggregate([{'$project':{'*': 1}},
-        {"$out": {"format": "leef", "fstype": "syslog", 'product': 'SonarK', 'product_version': self.version,
-                  "syslog_params": {"protocol": self.syslog_protocol,
-                                    "sendto": self.syslog_host, "port": self.syslog_port, "loglevel": "notice"}}}])
+        self.generate_base_json()
+        self.alerts_collection.aggregate([{'$project': {'*': 1}},
+                                          {"$out": {"format": "leef",
+                                                    "fstype": "syslog",
+                                                    'product': 'SonarK',
+                                                    'product_version': self.version,
+                                                    "syslog_params":
+                                                        {"protocol": self.syslog_protocol,
+                                                         "sendto": self.syslog_host,
+                                                         "port": self.syslog_port,
+                                                         "loglevel": "notice"}}}])
 
-        sonargd.drop_collection('tmp_alert')
+        self.drop_tmp_collection()
+
 
 class Alerter(object):
     """ Base class for types of alerts.
@@ -372,7 +428,7 @@ class Alerter(object):
         self.resolve_rule_references(self.rule)
         self.dispatch_conf = ConfigParser.ConfigParser()
         self.dispatch_conf.read(DISPATCHER_CONF)
-        self.sonar_uri = self.dispatch_conf.get('dispatch','sonarw_uri')
+        self.sonar_uri = self.dispatch_conf.get('dispatch', 'sonarw_uri')
         self.sonar_con = self.get_sonar_connection(self.sonar_uri)
 
     def resolve_rule_references(self, root):
@@ -511,7 +567,7 @@ class Alerter(object):
             summary_table_fields = self.rule['summary_table_fields']
             if not isinstance(summary_table_fields, list):
                 summary_table_fields = [summary_table_fields]
-            # Include a count aggregation so that we can see at a glance how many of each aggregation_key were encountered
+            # Include a count aggregation so that we can see how many of each aggregation_key were encountered
             summary_table_fields_with_count = summary_table_fields + ['count']
             text += "Aggregation resulted in the following data for summary_table_fields ==> {0}:\n\n".format(
                 summary_table_fields_with_count
