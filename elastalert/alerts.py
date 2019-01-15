@@ -220,7 +220,8 @@ class SonarFormattedMatchString:
                         self.rule['min_cardinality'], self.rule['max_cardinality'])
 
         elif isinstance(self.rule['type'], NewTermsRule):  # TODO why doesn't this trigger
-            text += '{} '
+            text += 'New term: {} occurred in field {}'.format(self.match[self.match['new_field']],
+                                                               self.match['new_field'])
 
         elif isinstance(self.rule['type'], MetricAggregationRule):
             text += '{} is the {} of field {}. This is not between {} and {}'.format(
@@ -332,7 +333,7 @@ class SyslogFormattedMatch:
                                  })
 
         elif isinstance(self.rule['type'], NewTermsRule):  # TODO add this once the rule works
-            out_json.update({})
+            out_json.update({'match': self.match})
 
         elif isinstance(self.rule['type'], MetricAggregationRule):
             out_json.update({'metric-agg_result': self.match['{}_{}'.format(self.rule['metric_agg_key'],
