@@ -35,6 +35,8 @@ from elasticsearch.exceptions import ElasticsearchException
 from elasticsearch.exceptions import TransportError
 from enhancements import DropMatchException
 from rule_type_definitions.frequency_rules import FlatlineRule
+from rule_type_definitions.compare_rules import BlacklistRule, WhitelistRule, ChangeRule
+from rule_type_definitions.cardinality_rule import CardinalityRule
 from saved_source_factory import SavedSourceFactory
 from util import add_raw_postfix
 from util import cronite_datetime_to_timestamp
@@ -277,15 +279,25 @@ class ElastAlerter():
             writeback_index += '_error'
         return writeback_index
 
-    @staticmethod
-    def get_query(rule, starttime=None, endtime=None, sort=True, timestamp_field='@timestamp', to_ts_func=dt_to_ts, desc=False,
-                  five=False):
+    def get_query(self, rule, starttime=None, endtime=None, sort=True, timestamp_field='@timestamp', to_ts_func=dt_to_ts, desc=False,
+                  five=False, index= None):
+
+        rule_inst = rule['type']
+
         if 'saved_source_id' in rule:
-            return ElastAlerter.get_saved_source_query(rule, rule['saved_source_id'], starttime, endtime, sort, timestamp_field, to_ts_func, desc, five)
+            query = ElastAlerter.get_saved_source_query(rule, rule['saved_source_id'], starttime, endtime, sort, timestamp_field, to_ts_func, desc, five)
         elif 'index' in rule and 'filter' in rule:
-            return ElastAlerter.get_filtered_query(rule['filter'], starttime, endtime, sort, timestamp_field, to_ts_func, desc, five)
+            query = ElastAlerter.get_filtered_query(rule['filter'], starttime, endtime, sort, timestamp_field, to_ts_func, desc, five)
         else:
             raise EAException('Invalid rule, missing saved_source_id or index field.')
+
+        if isinstance(rule_inst, (BlacklistRule, WhitelistRule)):
+            query = rule_inst.extend_query(query)
+
+        elif isinstance(rule_inst, ChangeRule):
+            query = rule_inst.extend_query(self.current_es, query, rule, timestamp_field, starttime, endtime, index)
+
+        return query
 
     @staticmethod
     def get_filtered_query(filters, starttime=None, endtime=None, sort=True, timestamp_field='@timestamp', to_ts_func=dt_to_ts, desc=False,
@@ -368,7 +380,7 @@ class ElastAlerter():
         else:
             aggs_element = metric_agg_element
 
-        if query_key is not None:
+        if query_key is not None and not isinstance(rule['type'], ChangeRule):
             for idx, key in reversed(list(enumerate(query_key.split(',')))):
                 aggs_element = {'bucket_aggs': {'terms': {'field': key, 'size': terms_size}, 'aggs': aggs_element}}
 
@@ -458,6 +470,7 @@ class ElastAlerter():
             timestamp_field=rule['timestamp_field'],
             to_ts_func=rule['dt_to_ts'],
             five=rule['five'],
+            index=index
         )
         extra_args = {'_source_include': rule['include']}
         scroll_keepalive = rule.get('scroll_keepalive', self.scroll_keepalive)
@@ -556,7 +569,7 @@ class ElastAlerter():
         return {endtime: res['count']}
 
     def get_hits_terms(self, rule, starttime, endtime, index, key, qk=None, size=None):
-        rule = copy.deepcopy(rule)
+        rule = rule.copy()
 
         if 'filter' in rule:
             rule_filter = copy.copy(rule['filter'])
@@ -635,8 +648,10 @@ class ElastAlerter():
             timestamp_field=rule['timestamp_field'],
             sort=False,
             to_ts_func=rule['dt_to_ts'],
-            five=rule['five']
+            five=rule['five'],
+            index=index
         )
+
         if term_size is None:
             term_size = rule.get('terms_size', 50)
         query = self.get_aggregation_query(base_query, rule, query_key, term_size, rule['timestamp_field'])
@@ -703,7 +718,7 @@ class ElastAlerter():
             end = ts_now()
 
         # Reset hit counter and query
-        rule_inst = rule['type']  # TODO add a type
+        rule_inst = rule['type']
         index = self.get_index(rule, start, end)
         if rule.get('use_count_query'):
             data = self.get_hits_count(rule, start, end, index)
@@ -721,7 +736,7 @@ class ElastAlerter():
         # There was an exception while querying
         if data is None:
             return False
-        elif data:    # TODO handle sonar returns
+        elif data:
             if rule.get('use_count_query'):
                 rule_inst.add_count_data(data)
             elif rule.get('use_terms_query'):
@@ -814,7 +829,7 @@ class ElastAlerter():
         else:
             if not rule.get('scan_entire_timeframe'):
                 # Query from the end of the last run, if it exists, otherwise a run_every sized window
-                rule['starttime'] = rule.get('previous_endtime', endtime - self.run_every)
+                rule['starttime'] = rule.get('previous_endtime', endtime - self.get_run_every_segment_size(rule))
             else:
                 rule['starttime'] = rule.get('previous_endtime', endtime - rule['timeframe'])
 
@@ -844,6 +859,8 @@ class ElastAlerter():
     def get_segment_size(self, rule, starttime=datetime.datetime.utcnow()):
         """ The segment size is either buffer_size for queries which can overlap or run_every for queries
         which must be strictly separate. This mimicks the query size for when ElastAlert is running continuously. """
+        if rule.get('timeframe') and not rule.get('use_run_every_query_size'):
+            return rule['timeframe']
         if not rule.get('use_count_query') and not rule.get('use_terms_query') and not rule.get('aggregation_query_element'):
             return rule.get('buffer_time', self.buffer_time)
         elif rule.get('aggregation_query_element'):
@@ -861,7 +878,6 @@ class ElastAlerter():
 
             cron = croniter(rule['cron'], next_run)
             next_next_run = cron.get_next(datetime.datetime)
-
             return next_next_run - next_run
         else:
             return self.run_every
@@ -949,6 +965,8 @@ class ElastAlerter():
         except Exception as e:
             self.handle_uncaught_exception(e, rule)
         else:
+            if rule.get('timeframe') and rule.get('aggregation_query_element') and not rule.get('use_run_every_query_size'):
+                endtime = pretty_ts(rule.get('original_starttime') + rule.get('timeframe'), rule.get('use_local_time'))
             old_starttime = pretty_ts(rule.get('original_starttime'), rule.get('use_local_time'))
             elastalert_logger.info("Ran %s from %s to %s: %s query hits (%s already seen), %s matches,"
                                    " %s alerts sent" % (
@@ -997,22 +1015,28 @@ class ElastAlerter():
 
         tmp_endtime = rule['starttime']
 
-        while endtime - rule['starttime'] > segment_size:
-            tmp_endtime = tmp_endtime + segment_size
-            elastalert_logger.info(
-                "Segment Size: {}, from {}, to {}".format(segment_size, rule['starttime'], tmp_endtime))
-            if not self.run_query(rule, rule['starttime'], tmp_endtime):
-                return 0
-            self.cumulative_hits += self.num_hits
-            self.num_hits = 0
-            rule['starttime'] = tmp_endtime
-            rule['type'].garbage_collect(tmp_endtime)
+        if not (rule.get('timeframe') or isinstance(rule['type'], ChangeRule)):
+            while endtime - rule['starttime'] > segment_size:
+                tmp_endtime = tmp_endtime + segment_size
+                elastalert_logger.info(
+                    "Segment Size: {}, from {}, to {}".format(segment_size, rule['starttime'], tmp_endtime))
+                if not self.run_query(rule, rule['starttime'], tmp_endtime):
+                    return 0
+                self.cumulative_hits += self.num_hits
+                self.num_hits = 0
+                rule['starttime'] = tmp_endtime
+                rule['type'].garbage_collect(tmp_endtime)
 
-            # Update segment_size since cron segment_size could vary.
-            segment_size = self.get_segment_size(rule, rule['starttime'])
+                # Update segment_size since cron segment_size could vary.
+                segment_size = self.get_segment_size(rule, rule['starttime'])
 
         if rule.get('aggregation_query_element'):
-            if endtime - tmp_endtime == segment_size:
+            if rule.get('timeframe') and not rule.get('use_run_every_query_size'):
+                endtime = rule['starttime'] + segment_size
+                tmp_endtime = endtime
+                self.run_query(rule, rule['starttime'], endtime)
+                self.cumulative_hits += self.num_hits
+            elif endtime - tmp_endtime == segment_size:
                 self.run_query(rule, tmp_endtime, endtime)
                 self.cumulative_hits += self.num_hits
             elif total_seconds(rule['original_starttime'] - tmp_endtime) == 0:
@@ -1028,6 +1052,7 @@ class ElastAlerter():
 
         # Process any new matches
         num_matches = len(rule['type'].matches)
+        elastalert_logger.warning(rule['type'].matches)
         while rule['type'].matches:
             match = rule['type'].matches.pop(0)
             match['num_hits'] = self.cumulative_hits
@@ -1978,6 +2003,7 @@ class ElastAlerter():
     def handle_error(self, message, data=None):
         ''' Logs message at error level and writes message, data and traceback to Elasticsearch. '''
         logging.error(message)
+        elastalert_logger.error(message)
         body = {'message': message}
         tb = traceback.format_exc()
         body['traceback'] = tb.strip().split('\n')

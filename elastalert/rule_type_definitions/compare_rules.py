@@ -1,10 +1,20 @@
+from datetime import timedelta
+
+from elasticsearch.exceptions import ElasticsearchException
+
 from elastalert.rule_type_definitions.ruletypes import RuleType
-from elastalert.util import lookup_es_key, elastalert_logger, hashable
+from elastalert.util import elastalert_logger
 
 
 class CompareRule(RuleType):
     """ A base class for matching a specific term by passing it to a compare function """
     required_options = frozenset(['compound_compare_key'])
+
+    def __init__(self, rules, args=None):
+        super(CompareRule, self).__init__(rules, args=None)
+        self.rules['use_run_every_query_size'] = True
+        self.rules['realert'] = timedelta(0)
+        self.agg_key = None
 
     def expand_entries(self, list_type):
         """ Expand entries specified in files using the '!file' directive, if there are
@@ -21,6 +31,30 @@ class CompareRule(RuleType):
                 entries_set.add(entry)
         self.rules[list_type] = entries_set
 
+    def generate_aggregation_query(self, key):
+        self.agg_key = key
+        agg_query = {'{}'.format(key): {'terms': {'field': key}}}
+        return agg_query
+
+    def generate_item_clauses(self, value_list, field):
+        item_clauses = []
+        for item in value_list:
+            clause = {"term": {field: item}}
+            item_clauses.append(clause)
+
+            if item.upper() == 'NULL':
+                clause = {"bool": {"must_not": {"exists": {"field": field}}}}
+                item_clauses.append(clause)
+            elif item == '""':
+                clause = {"term": {field: ""}}
+                item_clauses.append(clause)
+
+        if self.rules.get('ignore_null'):
+                clause = {"bool": {"must_not": {"exists": {"field": field}}}}
+                item_clauses.append(clause)
+
+        return item_clauses
+
     def compare(self, event):
         """ An event is a match if this returns true """
         raise NotImplementedError()
@@ -31,6 +65,15 @@ class CompareRule(RuleType):
             if self.compare(event):
                 self.add_match(event)
 
+    def add_aggregation_data(self, payload):
+        for timestamp, payload_data in payload.iteritems():
+            self.check_matches(timestamp, payload_data)
+
+    def check_matches(self, timestamp, aggregation_data):
+        for item in aggregation_data['{}'.format(self.agg_key)]['buckets']:
+            match = {self.rules['timestamp_field']: timestamp, self.agg_key: item['key'], "doc_count": item['doc_count']}
+            self.add_match(match)
+
 
 class BlacklistRule(CompareRule):
     """ A CompareRule where the compare function checks a given key against a blacklist """
@@ -40,13 +83,19 @@ class BlacklistRule(CompareRule):
         super(BlacklistRule, self).__init__(rules, args=None)
         self.expand_entries('blacklist')
 
-    def compare(self, event):
-        # Sonar: Since lists are always string, might aswell convert the term we extracted from document.
-        term = str(lookup_es_key(event, self.rules['compare_key']))
-        if term in self.rules['blacklist']:
-            return True
+        self.item_clauses = self.generate_item_clauses(self.rules['blacklist'], self.rules['compare_key'])
 
-        return False
+        # if self.rules['bundle_alerts']:
+        self.rules['aggregation_query_element'] = self.generate_aggregation_query(self.rules['compare_key'])
+
+    def compare(self, event):
+        return True
+
+    def extend_query(self, base_query):
+        """nests the query inside another boolean query to only get documents on the blacklist"""
+        inner_query = base_query['query']
+        query = {"query": {"bool": {"must": [inner_query, {"bool": {"should": self.item_clauses}}]}}}
+        return query
 
 
 class WhitelistRule(CompareRule):
@@ -56,16 +105,18 @@ class WhitelistRule(CompareRule):
     def __init__(self, rules, args=None):
         super(WhitelistRule, self).__init__(rules, args=None)
         self.expand_entries('whitelist')
+        self.item_clauses = self.generate_item_clauses(self.rules['whitelist'], self.rules['compare_key'])
+        # if self.rules['bundle_alerts']:
+        self.rules['aggregation_query_element'] = self.generate_aggregation_query(self.rules['compare_key'])
 
     def compare(self, event):
-        # Sonar: Since lists are always string, might aswell convert the term we extracted from document.
-        term = str(lookup_es_key(event, self.rules['compare_key']))
-        if term is None:
-            return not self.rules['ignore_null']
-        if term not in self.rules['whitelist']:
-            return True
+        return True
 
-        return False
+    def extend_query(self, base_query):
+        """nests the query inside another boolean query to only get documents on the blacklist"""
+        inner_query = base_query['query']
+        query = {"query": {"bool": {"must": [inner_query, {"bool": {"must_not": self.item_clauses}}]}}}
+        return query
 
 
 class ChangeRule(CompareRule):
@@ -74,49 +125,109 @@ class ChangeRule(CompareRule):
     change_map = {}
     occurrence_time = {}
 
+    def __init__(self,rules, args=None):
+        super(ChangeRule, self).__init__(rules, args=None)
+        # self.expand_entries('compound_compare_key')
+        self.rules['aggregation_query_element'] = self.generate_aggregation_query(self.rules['query_key'])
+
     def compare(self, event):
-        key = hashable(lookup_es_key(event, self.rules['query_key']))
-        values = []
-        elastalert_logger.debug(" Previous Values of compare keys  " + str(self.occurrences))
-        for val in self.rules['compound_compare_key']:
-            lookup_value = lookup_es_key(event, val)
-            values.append(lookup_value)
-        elastalert_logger.debug(" Current Values of compare keys   " + str(values))
+        return True
 
-        changed = False
-        for val in values:
-            if not isinstance(val, bool) and not val and self.rules['ignore_null']:
-                return False
-        # If we have seen this key before, compare it to the new value
-        if key in self.occurrences:
-            for idx, previous_values in enumerate(self.occurrences[key]):
-                elastalert_logger.debug(" " + str(previous_values) + " " + str(values[idx]))
-                changed = previous_values != values[idx]
-                if changed:
-                    break
-            if changed:
-                self.change_map[key] = (self.occurrences[key], values)
-                # If using timeframe, only return true if the time delta is < timeframe
-                if key in self.occurrence_time:
-                    changed = event[self.rules['timestamp_field']] - self.occurrence_time[key] <= self.rules['timeframe']
+    def extend_query(self, current_es, query, rule, timestamp_field, starttime, endtime, index):
 
-        # Update the current value and time
-        elastalert_logger.debug(" Setting current value of compare keys values " + str(values))
-        self.occurrences[key] = values
-        if 'timeframe' in self.rules:
-            self.occurrence_time[key] = event[self.rules['timestamp_field']]
-        elastalert_logger.debug("Final result of comparision between previous and current values " + str(changed))
-        return changed
+        query_key_values = self.get_query_keys_in_timewindow(current_es, query, rule, timestamp_field,
+                                                            starttime, endtime, index)
+        if query_key_values:
+            resp = self.get_old_query_key_values(current_es, query_key_values, rule, timestamp_field,
+                                                 starttime, endtime, index)
+            if resp:
+                item_clauses = self.generate_item_clauses(resp, rule)
 
-    def add_match(self, match):
-        # TODO this is not technically correct
-        # if the term changes multiple times before an alert is sent
-        # this data will be overwritten with the most recent change
-        change = self.change_map.get(hashable(lookup_es_key(match, self.rules['query_key'])))
-        extra = {}
-        if change:
-            extra = {'old_value': change[0],
-                     'new_value': change[1]}
-            elastalert_logger.debug("Description of the changed records  " + str(dict(match.items() + extra.items())))
-        super(ChangeRule, self).add_match(dict(match.items() + extra.items()))
+                # Build the main query from the generated clauses
+                inner_query = query['query']
+                query = {"query": {"bool": {"must": [inner_query, {"bool": {"must_not": item_clauses}}]}}}
 
+                return query
+
+    def get_query_keys_in_timewindow(self, current_es, query, rule, timestamp_field, starttime, endtime, index):
+        # Find what values of query key are inside the queried time range
+        try:
+            query_key_terms_query = {'query': {'bool': {'must': [
+                {'range': {timestamp_field: {'gt': starttime, 'lte': endtime}}}]}},
+                "aggs": {"key_values": {"terms": {"field": rule['query_key']}}}}
+            query_key_values = current_es.search(index=index, doc_type=rule.get('doc_type'), size=0,
+                                                          body=query_key_terms_query, ignore_unavailable=True)
+            return query_key_values
+
+        except ElasticsearchException as e:
+            # Elasticsearch sometimes gives us GIGANTIC error messages
+            # (so big that they will fill the entire terminal buffer)
+            if len(str(e)) > 1024:
+                e = str(e)[:1024] + '... (%d characters removed)' % (len(str(e)) - 1024)
+
+            elastalert_logger.error('Error getting query keys in timewindow for change rule: %s' % (e),
+                                    {'rule': rule['name'], 'query': query})
+
+    def get_old_query_key_values(self, current_es, query_key_values, rule, timestamp_field, starttime, endtime, index):
+        # Get the oldest value in the time range for each compare key for each query key
+        request = []
+        req_head = {'index': index, 'type': rule.get('doc_type')}
+        if query_key_values['aggregations']['key_values']['buckets']:
+            if rule.get('timeframe'):
+                time_clause = {'range': {timestamp_field: {'gt': starttime - rule['timeframe'], 'lte': endtime}}}
+            else:
+                time_clause = {'range': {timestamp_field: {'lte': starttime}}}
+            for field in rule['compound_compare_key']:
+                for key_field in query_key_values['aggregations']['key_values']['buckets']:
+                    key = key_field['key']
+
+                    req_body = {
+                        'sort': [{timestamp_field: {'order': 'desc'}}],
+                        'query': {"bool": {"must": [{'term': {rule['query_key']: key}},
+                                                    {'exists': {'field': field}},
+                                                    time_clause]}},
+                        'size': 1,
+                        'script_fields': {
+                            "compare_key_field": {"script": {"inline": "'{}'".format(field), "lang": "sonar"}}
+                        }
+                    }
+                    request.extend([req_head, req_body])
+            try:
+                resp = current_es.msearch(body=request)
+            except ElasticsearchException as e:
+                # Elasticsearch sometimes gives us GIGANTIC error messages
+                # (so big that they will fill the entire terminal buffer)
+                if len(str(e)) > 1024:
+                    e = str(e)[:1024] + '... (%d characters removed)' % (len(str(e)) - 1024)
+
+                elastalert_logger.error('Error getting query keys in timewindow for change rule: %s' % (e),
+                                        {'rule': rule['name'], 'query': request})
+                return None
+        else:
+            resp = {'responses': []}
+
+        return resp
+
+    def generate_item_clauses(self, resp, rule):
+        # Generate clauses that will match with any allowed values
+        item_clauses = []
+        for item in resp['responses']:
+            if item['hits']['hits']:
+                query_key_value = item['hits']['hits'][0]['_source'].get(rule['query_key'])
+                compare_key = item['hits']['hits'][0]['_source'].get('compare_key_field')
+                compare_key_value = item['hits']['hits'][0]['_source'].get(compare_key)
+
+                if not rule.get('ignore _null'):
+                    clause = {"bool": {"must": [
+                        {"match": {rule['query_key']: query_key_value}},
+                        {"match": {compare_key: compare_key_value}}
+                                               ]}}
+                else:  # Add the extra condition to ignore missing compare fields is ignore null is set
+                    clause = {"bool": {"must": [
+                        {"bool": {"should": [{"bool": {"must_not": [{"exists": {"field": compare_key}}]}},
+                                  {"match": {compare_key: compare_key_value}}]}},
+                        {"match": {rule['query_key']: query_key_value}}
+                                               ]}}
+                item_clauses.append(clause)
+
+        return item_clauses
