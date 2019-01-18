@@ -6,6 +6,7 @@ import json
 import logging
 import logging.handlers
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -19,7 +20,7 @@ from smtplib import SMTP
 from smtplib import SMTP_SSL
 from smtplib import SMTPAuthenticationError
 from smtplib import SMTPException
-from socket import error
+
 
 import boto3
 import requests
@@ -174,15 +175,17 @@ class JiraFormattedMatchString(BasicMatchString):
 
 
 class SonarFormattedMatchString:
-    def __init__(self, rule, match, match_time):
+    def __init__(self, rule, match):
         self.rule = rule
         self.match = match
-        self.match_time = match_time
+        self.match_time = match[rule['timestamp_field']]
 
     def __str__(self):
-        # TODO consider moving these to the rules themselves?
+        """
+        :return: A human readable string describing the event that raised the alert.
+        """
+
         text = "Rule \"{}\" generated an alert at {}.  ".format(self.rule['name'], self.match_time)
-        # TODO add timeframe or at lest start and end time info to alert
         if isinstance(self.rule['type'], BlacklistRule):
             text += "{} occurrences of blacklisted value {} occurred in field {}".format(
                 self.match['doc_count'], self.match['watched_field_value'], self.match['watched_field'])
@@ -192,8 +195,15 @@ class SonarFormattedMatchString:
                 self.match['doc_count'], self.match['watched_field_value'], self.match['watched_field'])
 
         elif isinstance(self.rule['type'], FlatlineRule):
-            text += "{} documents in timeframe. Minimum of {} expected".format(self.match['num_hits'],
-                                                                               self.rule['threshold'])
+            if self.rule.get('query_key'):
+                text += "{} documents in timeframe with a value {} for key {}. Minimum of {} expected".format(
+                    self.match['num_hits'],
+                    self.match['key'],
+                    self.rule['query_key'],
+                    self.rule['threshold'])
+            else:
+                text += "{} documents in timeframe. Minimum of {} expected".format(self.match['num_hits'],
+                                                                                   self.rule['threshold'])
         elif isinstance(self.rule['type'], ChangeRule):
             text += "The values of {0} for value {1} of query key {2} contain {3} entries that differ from the value " \
                     "of {0} when the rule last ran".format(self.rule['compare_key'], self.match['watched_field_value'],
@@ -219,7 +229,7 @@ class SonarFormattedMatchString:
                     self.rule['cardinality_field'], self.match['cardinality'],
                         self.rule['min_cardinality'], self.rule['max_cardinality'])
 
-        elif isinstance(self.rule['type'], NewTermsRule):  # TODO why doesn't this trigger
+        elif isinstance(self.rule['type'], NewTermsRule):
             text += 'New term: {} occurred in field {}'.format(self.match[self.match['new_field']],
                                                                self.match['new_field'])
 
@@ -238,29 +248,26 @@ class SyslogFormattedMatch:
     cef, leef or json format. It does this using the $out functionality of sonar, by storing the necessary data in a
     collection and then projecting all fields of the temporary collection to an out stage configured to send the data
     onwards to syslog in the appropriate format"""
-    def __init__(self, rule, match, match_time, dispatch_config, sonar_con):
+    def __init__(self, rule, match, dispatch_config, sonar_con):
         """
-
         :param rule: The rule dictionary containing the parameters of the running rule
         :param match: Information about what triggered this alert. Contents vary by rule type.
-        :param match_time: When did the event that set off this alert occur
         :param dispatch_config: config parser loaded from dispatcher.conf
         :param sonar_con: Pymongo connection to sonar
         """
         self.rule = rule
         self.match = match
-        self.match_time = match_time
         self.sonar_con = sonar_con
         self.sonargd = self.sonar_con['sonargd']
         self.alerts_collection = self.sonargd['tmp_alert']
 
         try:
-            self.syslog_host = dispatch_config.get('remote_syslog', 'host')
-        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            self.syslog_host = socket.gethostbyname(dispatch_config.get('remote_syslog', 'host'))
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError, socket.error):
             self.syslog_host = SYSLOG_DEFAULT_HOST
 
         try:
-            self.syslog_port = dispatch_config.get('remote_syslog', 'port')  # TODO current config fields right
+            self.syslog_port = int(dispatch_config.get('remote_syslog', 'port'))  # TODO current config fields right?
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             self.syslog_port = SYSLOG_DEFAULT_PORT
 
@@ -268,28 +275,33 @@ class SyslogFormattedMatch:
             self.syslog_protocol = dispatch_config.get('remote_syslog', 'protocol')
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             self.syslog_protocol = SYSLOG_DEFAULT_PROTOCOL
-        self.output_format = 'json'  # TODO get output format from engine
+
+        try:
+            self.output_format = self.sonar_con['lmrm__sonarg']['lmrm__ae_config'].find_one()['syslogType']
+        except Exception as e:
+            elastalert_logger.error('Failed to get syslog output format. Error: {}'.format(e))
+            self.output_format = json
 
         self.vendor = 'jSonar'
         self.product = 'SonarK'
         try:
-            self.version = os.environ['SONARK_VERSION']  # TODO make sure this is implemented
+            self.version = os.environ['SONARK_VERSION']
         except KeyError:
             self.version = 'unknown_version'
 
     def output_alert(self):
-        if self.output_format == 'json':
-            self.output_json()
-        elif self.output_format == 'cef':
+        if self.output_format == 'cef':
             self.output_cef()
         elif self.output_format == 'leef':
             self.output_leef()
+        else:
+            self.output_json()
 
     def generate_base_json(self):
         """"
         Inserts a json document containing the rule specific information about the event that triggered the alert
         """
-        out_json = {'rule': self.rule['name'], 'match_time': self.match_time}
+        out_json = {'rule': self.rule['name'], 'match_time': self.match[self.rule['timestamp_field']]}
         if isinstance(self.rule['type'], BlacklistRule):
             out_json.update({'blacklist_field': self.match['watched_field'],
                              'blacklisted_value': self.match['watched_field_value'],
@@ -301,7 +313,14 @@ class SyslogFormattedMatch:
                              'occurrences': self.match['doc_count']})
 
         elif isinstance(self.rule['type'], FlatlineRule):
-            out_json.update({'num_hits': self.match['num_hits'], 'threshold': self.rule['threshold']})
+            if self.rule.get('query_key'):
+                out_json.update({'num_hits': self.match['count'],
+                                 'threshold': self.rule['threshold'],
+                                 'query_key': self.rule['query_key'],
+                                 'query_key_value': self.match['key']
+                                 })
+            else:
+                out_json.update({'num_hits': self.match['num_hits'], 'threshold': self.rule['threshold']})
 
         elif isinstance(self.rule['type'], ChangeRule):
             out_json.update({'compare_key': self.rule['compare_key'],
@@ -332,8 +351,8 @@ class SyslogFormattedMatch:
                                  'max_cardinality': self.rule['min_cardinality']
                                  })
 
-        elif isinstance(self.rule['type'], NewTermsRule):  # TODO add this once the rule works
-            out_json.update({'match': self.match})
+        elif isinstance(self.rule['type'], NewTermsRule):
+            out_json.update({'new_term':self.match[self.match['new_field']], 'new_term_field':self.match['new_field']})
 
         elif isinstance(self.rule['type'], MetricAggregationRule):
             out_json.update({'metric-agg_result': self.match['{}_{}'.format(self.rule['metric_agg_key'],
@@ -354,7 +373,7 @@ class SyslogFormattedMatch:
     def output_json(self):
         self.generate_base_json()
 
-        self.alerts_collection.aggregate([{'$project': {'*': 1}},
+        self.alerts_collection.aggregate([{'$project': {'*': 1, '_id':0}},
                                           {'$out': {
                                                 'format': 'json',
                                                 'fstype': 'syslog',
@@ -702,9 +721,9 @@ class SyslogAlerter(Alerter):
     def __init__(self, *args):
         super(SyslogAlerter, self).__init__(*args)
 
-    def alert(self, matches, alert_time):
+    def alert(self, matches):
         for match in matches:
-            output = SyslogFormattedMatch(self.rule, match, alert_time, self.dispatch_conf, self.sonar_con)
+            output = SyslogFormattedMatch(self.rule, match, self.dispatch_conf, self.sonar_con)
             output.output_alert()
             elastalert_logger.info('Alert sent to Syslog')
 
@@ -725,11 +744,31 @@ class SonarDispatcherAlerter(Alerter):
             self.rule['email'] = [self.rule['email']]
         self.es_client = elasticsearch_client(self.rule)
 
-    def alert(self, matches, alert_time):
-        # TODO bundle alerts for emailing
-        #if self.rule['bundle_alerts']:
-        elastalert_logger.warning('matches: {}'.format(matches))
-        for match in matches:
+    def alert(self, matches):
+        """
+        Sends the alert to sonar dispatcher to be emailed to the system admin address configured in sonar
+        :param matches: dictionary containing rule specific information about the event that raised the alert
+        """
+        if not self.rule['bundle_alerts']:
+            for match in matches:
+                self.es_client.index(
+                    'lmrm__scheduler-lmrm__dispatched_jobs',
+                    '_doc',
+                    {
+                        'name': 'sonark_alerts',
+                        'emails': self.rule['email'],
+                        'type': 'send_email',
+                        'subject': "SonarK Alert generated message.",
+                        'email_content': str(SonarFormattedMatchString(self.rule, match))
+                    })
+
+            elastalert_logger.info('Alert sent to SonarDispatcher')
+
+        else:
+            email_content = ''
+            for match in matches:
+                email_content += str(SonarFormattedMatchString(self.rule, match)) + '\n'
+
             self.es_client.index(
                 'lmrm__scheduler-lmrm__dispatched_jobs',
                 '_doc',
@@ -738,10 +777,10 @@ class SonarDispatcherAlerter(Alerter):
                     'emails': self.rule['email'],
                     'type': 'send_email',
                     'subject': "SonarK Alert generated message.",
-                    'email_content': str(SonarFormattedMatchString(self.rule, match, alert_time))
+                    'email_content': email_content
                 })
 
-        elastalert_logger.info('Alert sent to SonarDispatcher')
+            elastalert_logger.info('Bundled Alerts sent to SonarDispatcher')
 
     def get_info(self):
         return {
@@ -831,7 +870,7 @@ class EmailAlerter(Alerter):
                     self.smtp.starttls(keyfile=self.smtp_key_file, certfile=self.smtp_cert_file)
             if 'smtp_auth_file' in self.rule:
                 self.smtp.login(self.user, self.password)
-        except (SMTPException, error) as e:
+        except (SMTPException, socket.error) as e:
             raise EAException("Error connecting to SMTP host: %s" % (e))
         except SMTPAuthenticationError as e:
             raise EAException("SMTP username/password rejected: %s" % (e))

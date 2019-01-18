@@ -63,7 +63,7 @@ class FrequencyRule(RuleType):
         # middle or end of an add_data call and is used in subclasses
         timeframe_occurences_count = self.occurrences[key].count()
         if timeframe_occurences_count >= self.rules['num_events']:
-            elastalert_logger.info("Match triggered! {} (> {}) events occured in the last timeframe".format(
+            elastalert_logger.info("Match triggered! {} (> {}) events occurred in the last timeframe".format(
                 timeframe_occurences_count, self.rules['num_events']))
             # Sonar: Added deep copies here and there since some "event" fields will be stringified at some point
             # down the line.
@@ -108,38 +108,14 @@ class FlatlineRule(FrequencyRule):
         self.first_event = {}
 
     def check_for_match(self, key, end=True):
-        # This function gets called between every added document with end=True after the last
-        # We ignore the calls before the end because it may trigger false positives
-        if not end:
-            return
 
-        most_recent_ts = self.get_ts(self.occurrences[key].data[-1])
-        if self.first_event.get(key) is None:
-            self.first_event[key] = most_recent_ts
-
-        # Don't check for matches until timeframe has elapsed
-        if most_recent_ts - self.first_event[key] < self.rules['timeframe']:
-            return
-
-        # Match if, after removing old events, we hit num_events
-        count = self.occurrences[key].count()
+        count = self.occurrences[key].count()  # get the last value from the dict which is the count
         if count < self.rules['threshold']:
             # Do a deep-copy, otherwise we lose the datetime type in the timestamp field of the last event
             event = copy.deepcopy(self.occurrences[key].data[-1][0])
             event.update(key=key, count=count)
             self.add_match(event)
-
-            if not self.rules.get('forget_keys'):
-                # After adding this match, leave the occurrences windows alone since it will
-                # be pruned in the next add_data or garbage_collect, but reset the first_event
-                # so that alerts continue to fire until the threshold is passed again.
-                least_recent_ts = self.get_ts(self.occurrences[key].data[0])
-                timeframe_ago = most_recent_ts - self.rules['timeframe']
-                self.first_event[key] = min(least_recent_ts, timeframe_ago)
-            else:
-                # Forget about this key until we see it again
-                self.first_event.pop(key)
-                self.occurrences.pop(key)
+        self.occurrences.pop(key)
 
     def get_match_str(self, match):
         ts = match[self.rules['timestamp_field']]
@@ -164,5 +140,5 @@ class FlatlineRule(FrequencyRule):
                 ({self.ts_field: ts}, 0)
             )
             self.first_event.setdefault(key, ts)
-            if self.rules.get('query_key'):
-                self.check_for_match(key)
+            # if self.rules.get('query_key'):
+            #    self.check_for_match(key)

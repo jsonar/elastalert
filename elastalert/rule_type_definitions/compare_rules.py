@@ -72,8 +72,7 @@ class CompareRule(RuleType):
 
     def check_matches(self, timestamp, aggregation_data):
         for item in aggregation_data['{}'.format(self.agg_key)]['buckets']:
-            # match = {self.rules['timestamp_field']: timestamp, self.agg_key: item['key'], "doc_count": item['doc_count']}
-            match = {'timestamp_field': self.rules['timestamp_field'], 'timestamp': timestamp,
+            match = {'timestamp_field': self.rules['timestamp_field'], self.rules['timestamp_field']: timestamp,
                      'watched_field': self.agg_key, 'watched_field_value': item['key'], "doc_count": item['doc_count']}
             elastalert_logger.warning('match in check matches {}'.format(match))
             self.add_match(match)
