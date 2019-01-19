@@ -61,19 +61,14 @@ class FrequencyRule(RuleType):
         # Match if, after removing old events, we hit num_events.
         # the 'end' parameter depends on whether this was called from the
         # middle or end of an add_data call and is used in subclasses
-        timeframe_occurences_count = self.occurrences[key].count()
-        if timeframe_occurences_count >= self.rules['num_events']:
-            elastalert_logger.info("Match triggered! {} (> {}) events occurred in the last timeframe".format(
-                timeframe_occurences_count, self.rules['num_events']))
-            # Sonar: Added deep copies here and there since some "event" fields will be stringified at some point
-            # down the line.
+
+        count = self.occurrences[key].count()  # get the last value from the dict which is the count
+        if count > self.rules['num_events']:
+            # Do a deep-copy, otherwise we lose the datetime type in the timestamp field of the last event
             event = copy.deepcopy(self.occurrences[key].data[-1][0])
-            if self.attach_related:
-                event['related_events'] = [copy.deepcopy(data[0]) for data in self.occurrences[key].data[:-1]]
+            event.update(key=key, count=count)
             self.add_match(event)
-            # Sonar: This is responsible for this ugly behaviour, as documented by one of the mainatainers:
-            #   :see https://github.com/Yelp/elastalert/issues/807#issuecomment-263678089
-            # self.occurrences.pop(key)
+        self.occurrences.pop(key)
 
     def garbage_collect(self, timestamp):
         """ Remove all occurrence data that is beyond the timeframe away """
@@ -140,5 +135,3 @@ class FlatlineRule(FrequencyRule):
                 ({self.ts_field: ts}, 0)
             )
             self.first_event.setdefault(key, ts)
-            # if self.rules.get('query_key'):
-            #    self.check_for_match(key)

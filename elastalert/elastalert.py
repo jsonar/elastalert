@@ -687,7 +687,6 @@ class ElastAlerter():
         if data is None:
             return False
         elif data:
-            elastalert_logger.warning('data: {}'.format(data)) # TODO why does flatline not make it here
             if rule.get('use_count_query'):
                 rule_inst.add_count_data(data)
             elif rule.get('use_terms_query'):
@@ -808,15 +807,7 @@ class ElastAlerter():
         """ The segment size is either timeframe for queries which can overlap, or the interval between runs for queries
         which must be strictly separate. """
         if rule.get('timeframe') and not rule.get('use_run_every_query_size'):
-            elastalert_logger.warning('returning timeframe')
             return rule['timeframe']
-        # if not rule.get('use_count_query') and not rule.get('use_terms_query') and not rule.get('aggregation_query_element'):
-        #    return rule.get('buffer_time', self.buffer_time)
-        # elif rule.get('aggregation_query_element'):
-            # if rule.get('use_run_every_query_size'):
-        #    return self.get_run_every_segment_size(rule, starttime)
-            # else:
-            #    return rule.get('buffer_time', self.buffer_time)
         else:
             return self.get_run_every_segment_size(rule, starttime)
 
@@ -964,9 +955,8 @@ class ElastAlerter():
         segment_size = self.get_segment_size(rule, rule['starttime'])
 
         tmp_endtime = rule['starttime']
-        elastalert_logger.warning('tmp_endtime {}'.format(tmp_endtime))
 
-        # TODO make this section less convoluted
+        # TODO fix intermittent issue with segment sizes
         if not rule.get('timeframe') or isinstance(rule['type'], ChangeRule):
             while endtime - rule['starttime'] >= segment_size:
                 tmp_endtime = tmp_endtime + segment_size
@@ -981,35 +971,17 @@ class ElastAlerter():
 
                 # Update segment_size since cron segment_size could vary.
                 segment_size = self.get_segment_size(rule, rule['starttime'])
-            # endtime = tmp_endtime
 
         if rule.get('aggregation_query_element'):
             if rule.get('timeframe') and not rule.get('use_run_every_query_size'):
-                #endtime = rule['starttime'] + segment_size
                 endtime = ts_now()
                 rule['starttime'] = endtime - segment_size
-                elastalert_logger.warning('has timeframe start: {} end: {}'.format(rule['starttime'], endtime))
                 self.run_query(rule, rule['starttime'], endtime)
                 self.cumulative_hits += self.num_hits
-            """
-            elif endtime - tmp_endtime == segment_size:
-                elastalert_logger.warning('end_time-tmp_endtime = seg size. Start: {} end: {}'.format(tmp_endtime, endtime))
-                self.run_query(rule, tmp_endtime, endtime)
-                self.cumulative_hits += self.num_hits
-            elif total_seconds(rule['original_starttime'] - tmp_endtime) == 0:
-                elastalert_logger.warning('original starttime-tmpendtime=0. old starttime: {} new starttime: {}'.format(rule['starttime'], rule['original_starttime']))
-                rule['starttime'] = rule['original_starttime']
-                return 0, endtime
-            else:
-                elastalert_logger.warning('endtime {} = tmp_endtime {}'.format(endtime, tmp_endtime))
-                endtime = tmp_endtime
-            """
         else:
             if rule.get('timeframe'):
                 endtime = ts_now()
                 rule['starttime'] = endtime - segment_size
-            elastalert_logger.warning(
-                'not an agg query but it is running here. Start: {}, end: {}'.format(rule['starttime'], endtime))
             if not self.run_query(rule, rule['starttime'], endtime):
                 rule['type'].garbage_collect(endtime)
                 return 0, endtime
@@ -1085,20 +1057,6 @@ class ElastAlerter():
             return False
 
         self.enhance_filter(new_rule)
-
-        # Change top_count_keys to .raw
-        # SonarK: Irrelevant for us since we don't recognize .keyword as a field postfix.
-        # if 'top_count_keys' in new_rule and new_rule.get('raw_count_keys', True):
-        #     if self.string_multi_field_name:
-        #         string_multi_field_name = self.string_multi_field_name
-        #     elif self.is_atleastfive():
-        #         string_multi_field_name = '.keyword'
-        #     else:
-        #         string_multi_field_name = '.raw'
-        #
-        #     for i, key in enumerate(new_rule['top_count_keys']):
-        #         if not key.endswith(string_multi_field_name):
-        #             new_rule['top_count_keys'][i] += string_multi_field_name
 
         if 'download_dashboard' in new_rule['filter']:
             # Download filters from Kibana and set the rules filters to them
@@ -1599,11 +1557,9 @@ class ElastAlerter():
         # Alert.pipeline is a single object shared between every alerter
         # This allows alerters to pass objects and data between themselves
         alert_pipeline = {"alert_time": alert_time}
-        elastalert_logger.warning('rule["alert"] is {}'.format(rule['alert']))
         for alert in rule['alert']:
             alert.pipeline = alert_pipeline
             try:
-                elastalert_logger.warning('matches are {}'.format(matches))
                 alert.alert(matches)
             except EAException as e:
                 self.handle_error('Error while running alert %s: %s' % (alert.get_info()['type'], e), {'rule': rule['name']})

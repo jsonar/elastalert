@@ -46,8 +46,7 @@ from util import resolve_string
 from util import ts_now
 from util import ts_to_dt
 
-from rule_type_definitions.aggregation_rules import MetricAggregationRule, PercentageMatchRule
-from rule_type_definitions.any_rule import AnyRule
+from rule_type_definitions.aggregation_rules import MetricAggregationRule
 from rule_type_definitions.cardinality_rule import CardinalityRule
 from rule_type_definitions.compare_rules import BlacklistRule, WhitelistRule, ChangeRule
 from rule_type_definitions.frequency_rules import FrequencyRule, FlatlineRule
@@ -210,8 +209,16 @@ class SonarFormattedMatchString:
                                                            self.rule['query_key'], self.match['doc_count'])
 
         elif isinstance(self.rule['type'], FrequencyRule):
-            text += "{} documents in timeframe. Maximum of {} expected".format(self.match['num_hits'],
-                                                                               self.rule['num_events'])
+            if self.rule.get('query_key'):
+                text += "{} documents in timeframe where {} was {}. Maximum of {} expected".format(
+                    self.match['num_hits'],
+                    self.rule['query_key'],
+                    self.match[self.rule['query_key']],
+                    self.rule['num_events']
+                    )
+            else:
+                text += "{} documents in timeframe. Maximum of {} expected".format(self.match['num_hits'],
+                                                                                   self.rule['num_events'])
         elif isinstance(self.rule['type'], SpikeRule):
             text += "{} hits in spike. {} hits in previous window".format(self.match['spike_count'],
                                                                           self.match['reference_count'])
@@ -329,7 +336,14 @@ class SyslogFormattedMatch:
                              'num_changed_values': self.match['doc_count']})
 
         elif isinstance(self.rule['type'], FrequencyRule):
-            out_json.update({'frequency': self.match['num_hits'], 'threshold': self.rule['num_events']})
+            if self.rule.get('query_key'):
+                out_json.update({'frequency': self.match['count'],
+                                 'threshold': self.rule['num_events'],
+                                 'query_key': self.rule['query_key'],
+                                 'query_key_value': self.match[self.rule['query_key']]
+                                 })
+            else:
+                out_json.update({'frequency': self.match['num_hits'], 'threshold': self.rule['num_events']})
 
         elif isinstance(self.rule['type'], SpikeRule):
             out_json.update({'spike_window_hits': self.match['spike_count'],
@@ -352,7 +366,8 @@ class SyslogFormattedMatch:
                                  })
 
         elif isinstance(self.rule['type'], NewTermsRule):
-            out_json.update({'new_term':self.match[self.match['new_field']], 'new_term_field':self.match['new_field']})
+            out_json.update({'new_term': self.match[self.match['new_field']],
+                             'new_term_field': self.match['new_field']})
 
         elif isinstance(self.rule['type'], MetricAggregationRule):
             out_json.update({'metric-agg_result': self.match['{}_{}'.format(self.rule['metric_agg_key'],
@@ -373,7 +388,7 @@ class SyslogFormattedMatch:
     def output_json(self):
         self.generate_base_json()
 
-        self.alerts_collection.aggregate([{'$project': {'*': 1, '_id':0}},
+        self.alerts_collection.aggregate([{'$project': {'*': 1, '_id': 0}},
                                           {'$out': {
                                                 'format': 'json',
                                                 'fstype': 'syslog',
