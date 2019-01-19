@@ -956,7 +956,6 @@ class ElastAlerter():
 
         tmp_endtime = rule['starttime']
 
-        # TODO fix intermittent issue with segment sizes
         if not rule.get('timeframe') or isinstance(rule['type'], ChangeRule):
             while endtime - rule['starttime'] >= segment_size:
                 tmp_endtime = tmp_endtime + segment_size
@@ -971,6 +970,11 @@ class ElastAlerter():
 
                 # Update segment_size since cron segment_size could vary.
                 segment_size = self.get_segment_size(rule, rule['starttime'])
+
+                percent_95_segment_size = datetime.timedelta(seconds=0.95 * segment_size.total_seconds())
+                if percent_95_segment_size < endtime - rule['starttime'] < segment_size:
+                    # Special case to handle the timing issues that sometimes delay results by one run interval
+                    segment_size = endtime - rule['starttime']
 
         if rule.get('aggregation_query_element'):
             if rule.get('timeframe') and not rule.get('use_run_every_query_size'):
