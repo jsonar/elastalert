@@ -210,7 +210,7 @@ class SonarFormattedMatchString:
 
         elif isinstance(self.rule['type'], FrequencyRule):
             if self.rule.get('query_key'):
-                text += "{} documents in timeframe where {} was {}. Maximum of {} expected".format(
+                text += "{} documents in timeframe where {} was {}. Less than {} documents expected".format(
                     self.match['num_hits'],
                     self.rule['query_key'],
                     self.match[self.rule['query_key']],
@@ -271,16 +271,22 @@ class SyslogFormattedMatch:
         try:
             self.syslog_host = socket.gethostbyname(dispatch_config.get('remote_syslog', 'host'))
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError, socket.error):
+            elastalert_logger.warning('No host field set in remote_syslog section of dispatcher.conf.'
+                                      ' Defaulting to {}'.format(SYSLOG_DEFAULT_HOST))
             self.syslog_host = SYSLOG_DEFAULT_HOST
 
         try:
-            self.syslog_port = int(dispatch_config.get('remote_syslog', 'port'))  # TODO current config fields right?
+            self.syslog_port = int(dispatch_config.get('remote_syslog', 'port'))
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            elastalert_logger.warning('No port field set in remote_syslog section of dispatcher.conf.'
+                                      ' Defaulting to {}'.format(SYSLOG_DEFAULT_PORT))
             self.syslog_port = SYSLOG_DEFAULT_PORT
 
         try:
-            self.syslog_protocol = dispatch_config.get('remote_syslog', 'protocol')
+            self.syslog_protocol = dispatch_config.get('remote_syslog', 'protocol').lower()
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            elastalert_logger.warning('No protocol field set in remote_syslog section of dispatcher.conf.'
+                                      ' Defaulting to {}'.format(SYSLOG_DEFAULT_PROTOCOL))
             self.syslog_protocol = SYSLOG_DEFAULT_PROTOCOL
 
         try:

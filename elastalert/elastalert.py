@@ -994,6 +994,7 @@ class ElastAlerter():
 
         # Process any new matches
         num_matches = len(rule['type'].matches)
+        match_list = []
         while rule['type'].matches:
             match = rule['type'].matches.pop(0)
             match['num_hits'] = self.cumulative_hits
@@ -1025,14 +1026,20 @@ class ElastAlerter():
                 except DropMatchException:
                     continue
 
-            # If no aggregation, alert immediately
-            if not rule['aggregation']:
-                # TODO bundle alerts once option re-added
-                self.alert([match], rule)
+            if rule.get('bundle_alerts'):
+                match_list.append(match)
                 continue
+            else:
+                # If no aggregation, alert immediately
+                if not rule['aggregation']:
+                    self.alert([match], rule)
+                    continue
 
             # Add it as an aggregated match
             self.add_aggregated_alert(match, rule)
+
+        if rule.get('bundle_alerts'):
+                self.alert(match_list, rule)
 
         # Mark this endtime for next run's start
         rule['previous_endtime'] = endtime
@@ -1492,7 +1499,7 @@ class ElastAlerter():
             alert_time = ts_now()
 
         # Compute top count keys
-        if rule.get('top_count_keys'):
+        if rule.get('top_count_keys'):  # TODO Do we use top_count_keys ever?
             for match in matches:
                 if 'query_key' in rule and rule['query_key'] in match:
                     qk = match[rule['query_key']]
@@ -1578,8 +1585,9 @@ class ElastAlerter():
             alert_body = self.get_alert_body(match, rule, alert_sent, alert_time, alert_exception)
 
             # Set all matches to aggregate together
-            if agg_id:
-                alert_body['aggregate_id'] = agg_id
+            if not rule.get('bundle_alerts'):
+                if agg_id:
+                    alert_body['aggregate_id'] = agg_id
             res = self.writeback('elastalert', alert_body)
             if res and not agg_id:
                 agg_id = res['_id']
@@ -1592,7 +1600,6 @@ class ElastAlerter():
             'alert_sent': alert_sent,
             'alert_time': alert_time
         }
-
         match_time = lookup_es_key(match, rule['timestamp_field'])
         if match_time is not None:
             body['match_time'] = match_time
@@ -1692,13 +1699,13 @@ class ElastAlerter():
                 aggregated_matches = self.get_aggregated_matches(_id)
                 if aggregated_matches:
                     matches = [match_body] + [agg_match['match_body'] for agg_match in aggregated_matches]
-                    self.alert(matches, rule, alert_time=alert_time)  # TODO bundle
+                    self.alert(matches, rule, alert_time=alert_time)
                 else:
                     # If this rule isn't using aggregation, this must be a retry of a failed alert
                     retried = False
                     if not rule.get('aggregation'):
                         retried = True
-                    self.alert([match_body], rule, alert_time=alert_time, retried=retried)  # TODO bundle
+                    self.alert([match_body], rule, alert_time=alert_time, retried=retried)
 
                 if rule['current_aggregate_id']:
                     for qk, agg_id in rule['current_aggregate_id'].iteritems():
@@ -1725,7 +1732,7 @@ class ElastAlerter():
                             in rule['agg_matches']
                             if self.get_aggregation_key_value(rule, agg_match) == aggregation_key_value
                         ]
-                        self.alert(alertable_matches, rule)  # TODO bundle?
+                        self.alert(alertable_matches, rule)
                         rule['agg_matches'] = [
                             agg_match
                             for agg_match

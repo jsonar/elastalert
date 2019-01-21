@@ -66,7 +66,6 @@ class CompareRule(RuleType):
                 self.add_match(event)
 
     def add_aggregation_data(self, payload):
-        elastalert_logger.warning('aggregation data payload: {}'.format(payload))
         for timestamp, payload_data in payload.iteritems():
             self.check_matches(timestamp, payload_data)
 
@@ -74,7 +73,6 @@ class CompareRule(RuleType):
         for item in aggregation_data['{}'.format(self.agg_key)]['buckets']:
             match = {'timestamp_field': self.rules['timestamp_field'], self.rules['timestamp_field']: timestamp,
                      'watched_field': self.agg_key, 'watched_field_value': item['key'], "doc_count": item['doc_count']}
-            elastalert_logger.warning('match in check matches {}'.format(match))
             self.add_match(match)
 
 
@@ -88,7 +86,6 @@ class BlacklistRule(CompareRule):
 
         self.item_clauses = self.generate_item_clauses(self.rules['blacklist'], self.rules['compare_key'])
 
-        # if self.rules['bundle_alerts']:
         self.rules['aggregation_query_element'] = self.generate_aggregation_query(self.rules['compare_key'])
 
     def compare(self, event):
