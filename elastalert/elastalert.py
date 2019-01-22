@@ -9,8 +9,6 @@ import sys
 import time
 import timeit
 import traceback
-import urllib
-import urlparse
 from email.mime.text import MIMEText
 from smtplib import SMTP
 from smtplib import SMTPException
@@ -19,7 +17,6 @@ from pytz import utc
 
 import kibana
 import yaml
-import pymongo
 from threadsafe_copy import ThreadsafeCopy as copy
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -163,8 +160,6 @@ class ElastAlerter():
         self.disabled_rules = []
         self.replace_dots_in_field_names = self.conf.get('replace_dots_in_field_names', False)
         self.string_multi_field_name = self.conf.get('string_multi_field_name', False)
-        self.sonar_uri = self.conf['sonar_uri']
-        self.sonar_con = self.get_sonar_connection(self.sonar_uri)
 
         self.writeback_es = elasticsearch_client(self.conf)
         self._es_version = None
@@ -185,49 +180,6 @@ class ElastAlerter():
 
         if self.args.silence:
             self.silence()
-
-    def get_sonar_connection(self, uri):
-        """
-        Opens a sonar client using the specified uri, and reads the database names from sonar to check that the
-        connection is actually open.
-        :param uri: string in mongo uri format. Normally uses the internal user with the following format:
-        "mongodb://CN=admin@localhost:27117/admin?authSource=$external&authMechanism=PLAIN&certfile=/etc/sonar/ssl/client/admin/cert.pem"
-        :return: sonar client
-        """
-        client = pymongo.MongoClient(self.manipulate_uri(uri))
-        out = client.database_names()
-
-        return client
-
-    def manipulate_uri(self, uri):
-        p = urlparse.urlparse(uri)
-        if not p.password and p.query:
-            password = None
-            qs = urlparse.parse_qs(p.query)
-            if 'certfile' in qs:
-                # password is certfile, with newlines replaced by backslash n
-                password = r'\n'.join([l.rstrip('\n')
-                                       for l in open(qs['certfile'][0], 'r')])
-                del qs['certfile']
-            uri = urlparse.urlunparse((p.scheme,
-                                       self.netloc_with_password(p, password),
-                                       p.path,
-                                       p.params,
-                                       urllib.urlencode(qs, doseq=True),
-                                       p.fragment))
-        return uri
-    @staticmethod
-    def netloc_with_password(p, password):
-        ret = ''
-        if p.username:
-            ret += p.username
-            if password:
-                ret += ':' + urllib.quote(password, safe='')
-            ret += '@'
-        ret += p.hostname
-        if p.port:
-            ret += ':' + str(p.port)
-        return ret
 
     def get_version(self):
         info = self.writeback_es.info()
@@ -716,7 +668,6 @@ class ElastAlerter():
             start = self.get_index_start(get_index_util(rule))
         if end is None:
             end = ts_now()
-
         # Reset hit counter and query
         rule_inst = rule['type']
         index = self.get_index(rule, start, end)
@@ -791,26 +742,23 @@ class ElastAlerter():
 
     def set_starttime(self, rule, endtime):
         """ Given a rule and an endtime, sets the appropriate starttime for it. """
-
         # This means we are starting fresh
         if 'starttime' not in rule:
             if not rule.get('scan_entire_timeframe'):
                 # Try to get the last run from Elasticsearch
                 last_run_end = self.get_starttime(rule)
                 if last_run_end:
-                    rule['starttime'] = last_run_end
+                    rule['starttime'] = ts_now() - self.get_segment_size(rule)
                     self.adjust_start_time_for_overlapping_agg_query(rule)
                     self.adjust_start_time_for_interval_sync(rule, endtime)
                     rule['minimum_starttime'] = rule['starttime']
                     return None
 
-        # Use buffer for normal queries, or run_every increments otherwise
-        # or, if scan_entire_timeframe, use timeframe
+        # Use segment size or, if scan_entire_timeframe, use timeframe
 
         if not rule.get('use_count_query') and not rule.get('use_terms_query'):
             if not rule.get('scan_entire_timeframe'):
-                buffer_time = rule.get('buffer_time', self.buffer_time)
-                buffer_delta = endtime - buffer_time
+                buffer_delta = endtime - self.get_segment_size(rule)
             else:
                 buffer_delta = endtime - rule['timeframe']
             # If we started using a previous run, don't go past that
@@ -857,17 +805,10 @@ class ElastAlerter():
                     rule['bucket_offset_delta'] = offset
 
     def get_segment_size(self, rule, starttime=datetime.datetime.utcnow()):
-        """ The segment size is either buffer_size for queries which can overlap or run_every for queries
-        which must be strictly separate. This mimicks the query size for when ElastAlert is running continuously. """
+        """ The segment size is either timeframe for queries which can overlap, or the interval between runs for queries
+        which must be strictly separate. """
         if rule.get('timeframe') and not rule.get('use_run_every_query_size'):
             return rule['timeframe']
-        if not rule.get('use_count_query') and not rule.get('use_terms_query') and not rule.get('aggregation_query_element'):
-            return rule.get('buffer_time', self.buffer_time)
-        elif rule.get('aggregation_query_element'):
-            if rule.get('use_run_every_query_size'):
-                return self.get_run_every_segment_size(rule, starttime)
-            else:
-                return rule.get('buffer_time', self.buffer_time)
         else:
             return self.get_run_every_segment_size(rule, starttime)
 
@@ -959,18 +900,19 @@ class ElastAlerter():
             endtime = ts_now()
 
         try:
-            num_matches = self.run_rule(rule, endtime, self.starttime)
+            num_matches, endtime = self.run_rule(rule, endtime, self.starttime)
         except EAException as e:
             self.handle_error("Error running rule %s: %s" % (rule['name'], e), {'rule': rule['name']})
         except Exception as e:
             self.handle_uncaught_exception(e, rule)
         else:
-            if rule.get('timeframe') and rule.get('aggregation_query_element') and not rule.get('use_run_every_query_size'):
-                endtime = pretty_ts(rule.get('original_starttime') + rule.get('timeframe'), rule.get('use_local_time'))
-            old_starttime = pretty_ts(rule.get('original_starttime'), rule.get('use_local_time'))
+            if rule.get('timeframe') and not isinstance(rule['type'], ChangeRule):
+                printed_starttime = pretty_ts(rule.get('starttime'))
+            else:
+                printed_starttime = pretty_ts(rule.get('original_starttime'), rule.get('use_local_time'))
             elastalert_logger.info("Ran %s from %s to %s: %s query hits (%s already seen), %s matches,"
                                    " %s alerts sent" % (
-                                   rule['name'], old_starttime, pretty_ts(endtime, rule.get('use_local_time')),
+                                   rule['name'], printed_starttime, pretty_ts(endtime, rule.get('use_local_time')),
                                    self.num_hits, self.num_dupes, num_matches, self.alerts_sent))
             self.alerts_sent = 0
 
@@ -1005,23 +947,23 @@ class ElastAlerter():
         # Don't run if starttime was set to the future
         if ts_now() <= rule['starttime']:
             logging.warning("Attempted to use query start time in the future (%s), sleeping instead" % (starttime))
-            return 0
+            return 0, endtime
 
         # Run the rule. If querying over a large time period, split it up into segments
         self.num_hits = 0
         self.num_dupes = 0
         self.cumulative_hits = 0
-        segment_size = self.get_segment_size(rule)
+        segment_size = self.get_segment_size(rule, rule['starttime'])
 
         tmp_endtime = rule['starttime']
 
-        if not (rule.get('timeframe') or isinstance(rule['type'], ChangeRule)):
-            while endtime - rule['starttime'] > segment_size:
+        if not rule.get('timeframe') or isinstance(rule['type'], ChangeRule):
+            while endtime - rule['starttime'] >= segment_size:
                 tmp_endtime = tmp_endtime + segment_size
                 elastalert_logger.info(
                     "Segment Size: {}, from {}, to {}".format(segment_size, rule['starttime'], tmp_endtime))
                 if not self.run_query(rule, rule['starttime'], tmp_endtime):
-                    return 0
+                    return 0, endtime
                 self.cumulative_hits += self.num_hits
                 self.num_hits = 0
                 rule['starttime'] = tmp_endtime
@@ -1030,29 +972,30 @@ class ElastAlerter():
                 # Update segment_size since cron segment_size could vary.
                 segment_size = self.get_segment_size(rule, rule['starttime'])
 
+                percent_95_segment_size = datetime.timedelta(seconds=0.95 * segment_size.total_seconds())
+                if percent_95_segment_size < endtime - rule['starttime'] < segment_size:
+                    # Special case to handle the timing issues that sometimes delay results by one run interval
+                    segment_size = endtime - rule['starttime']
+
         if rule.get('aggregation_query_element'):
             if rule.get('timeframe') and not rule.get('use_run_every_query_size'):
-                endtime = rule['starttime'] + segment_size
-                tmp_endtime = endtime
+                endtime = ts_now()
+                rule['starttime'] = endtime - segment_size
                 self.run_query(rule, rule['starttime'], endtime)
                 self.cumulative_hits += self.num_hits
-            elif endtime - tmp_endtime == segment_size:
-                self.run_query(rule, tmp_endtime, endtime)
-                self.cumulative_hits += self.num_hits
-            elif total_seconds(rule['original_starttime'] - tmp_endtime) == 0:
-                rule['starttime'] = rule['original_starttime']
-                return 0
-            else:
-                endtime = tmp_endtime
         else:
+            if rule.get('timeframe'):
+                endtime = ts_now()
+                rule['starttime'] = endtime - segment_size
             if not self.run_query(rule, rule['starttime'], endtime):
-                return 0
+                rule['type'].garbage_collect(endtime)
+                return 0, endtime
             self.cumulative_hits += self.num_hits
             rule['type'].garbage_collect(endtime)
 
         # Process any new matches
         num_matches = len(rule['type'].matches)
-        elastalert_logger.warning(rule['type'].matches)
+        match_list = []
         while rule['type'].matches:
             match = rule['type'].matches.pop(0)
             match['num_hits'] = self.cumulative_hits
@@ -1084,13 +1027,20 @@ class ElastAlerter():
                 except DropMatchException:
                     continue
 
-            # If no aggregation, alert immediately
-            if not rule['aggregation']:
-                self.alert([match], rule)
+            if rule.get('bundle_alerts'):
+                match_list.append(match)
                 continue
+            else:
+                # If no aggregation, alert immediately
+                if not rule['aggregation']:
+                    self.alert([match], rule)
+                    continue
 
             # Add it as an aggregated match
             self.add_aggregated_alert(match, rule)
+
+        if rule.get('bundle_alerts'):
+                self.alert(match_list, rule)
 
         # Mark this endtime for next run's start
         rule['previous_endtime'] = endtime
@@ -1106,7 +1056,7 @@ class ElastAlerter():
                 'time_taken': time_taken}
         self.writeback('elastalert_status', body)
 
-        return num_matches
+        return num_matches, endtime
 
     def init_rule(self, new_rule, new=True):
         ''' Copies some necessary non-config state from an exiting rule to a new rule. '''
@@ -1119,20 +1069,6 @@ class ElastAlerter():
             return False
 
         self.enhance_filter(new_rule)
-
-        # Change top_count_keys to .raw
-        # SonarK: Irrelevant for us since we don't recognize .keyword as a field postfix.
-        # if 'top_count_keys' in new_rule and new_rule.get('raw_count_keys', True):
-        #     if self.string_multi_field_name:
-        #         string_multi_field_name = self.string_multi_field_name
-        #     elif self.is_atleastfive():
-        #         string_multi_field_name = '.keyword'
-        #     else:
-        #         string_multi_field_name = '.raw'
-        #
-        #     for i, key in enumerate(new_rule['top_count_keys']):
-        #         if not key.endswith(string_multi_field_name):
-        #             new_rule['top_count_keys'][i] += string_multi_field_name
 
         if 'download_dashboard' in new_rule['filter']:
             # Download filters from Kibana and set the rules filters to them
@@ -1564,7 +1500,7 @@ class ElastAlerter():
             alert_time = ts_now()
 
         # Compute top count keys
-        if rule.get('top_count_keys'):
+        if rule.get('top_count_keys'):  # TODO Do we use top_count_keys ever?
             for match in matches:
                 if 'query_key' in rule and rule['query_key'] in match:
                     qk = match[rule['query_key']]
@@ -1636,7 +1572,7 @@ class ElastAlerter():
         for alert in rule['alert']:
             alert.pipeline = alert_pipeline
             try:
-                alert.alert(matches, alert_time)
+                alert.alert(matches)
             except EAException as e:
                 self.handle_error('Error while running alert %s: %s' % (alert.get_info()['type'], e), {'rule': rule['name']})
                 alert_exception = str(e)
@@ -1650,8 +1586,9 @@ class ElastAlerter():
             alert_body = self.get_alert_body(match, rule, alert_sent, alert_time, alert_exception)
 
             # Set all matches to aggregate together
-            if agg_id:
-                alert_body['aggregate_id'] = agg_id
+            if not rule.get('bundle_alerts'):
+                if agg_id:
+                    alert_body['aggregate_id'] = agg_id
             res = self.writeback('elastalert', alert_body)
             if res and not agg_id:
                 agg_id = res['_id']
@@ -1664,7 +1601,6 @@ class ElastAlerter():
             'alert_sent': alert_sent,
             'alert_time': alert_time
         }
-
         match_time = lookup_es_key(match, rule['timestamp_field'])
         if match_time is not None:
             body['match_time'] = match_time
@@ -1678,7 +1614,7 @@ class ElastAlerter():
 
     def writeback(self, doc_type, body):
         writeback_index = self.writeback_index
-        if(self.is_atleastsix()):
+        if self.is_atleastsix():
             writeback_index = self.get_six_index(doc_type)
 
         # ES 2.0 - 2.3 does not support dots in field names.

@@ -25,7 +25,6 @@ class FrequencyRule(RuleType):
 
         event = ({self.ts_field: ts}, count)
         self.occurrences.setdefault('all', EventWindow(self.rules['timeframe'], getTimestamp=self.get_ts)).append(event)
-        elastalert_logger.warning('check for matches in add count data')
         self.check_for_match('all')
 
     def add_terms_data(self, terms):
@@ -34,7 +33,6 @@ class FrequencyRule(RuleType):
                 event = ({self.ts_field: timestamp,
                           self.rules['query_key']: bucket['key']}, bucket['doc_count'])
                 self.occurrences.setdefault(bucket['key'], EventWindow(self.rules['timeframe'], getTimestamp=self.get_ts)).append(event)
-                elastalert_logger.warning('check for matches in add terms data')
                 self.check_for_match(bucket['key'])
 
     def add_data(self, data):
@@ -52,32 +50,25 @@ class FrequencyRule(RuleType):
 
             # Store the timestamps of recent occurrences, per key
             self.occurrences.setdefault(key, EventWindow(self.rules['timeframe'], getTimestamp=self.get_ts)).append((event, 1))
-            elastalert_logger.warning('check for matches in add data 1')
             self.check_for_match(key, end=False)
 
         # We call this multiple times with the 'end' parameter because subclasses
         # may or may not want to check while only partial data has been added
         if key in self.occurrences:  # could have been emptied by previous check
-            elastalert_logger.warning('check for matches in add data 2')
             self.check_for_match(key, end=True)
 
     def check_for_match(self, key, end=False):
         # Match if, after removing old events, we hit num_events.
         # the 'end' parameter depends on whether this was called from the
         # middle or end of an add_data call and is used in subclasses
-        timeframe_occurences_count = self.occurrences[key].count()
-        if timeframe_occurences_count >= self.rules['num_events']:
-            elastalert_logger.info("Match triggered! {} (> {}) events occured in the last timeframe".format(
-                timeframe_occurences_count, self.rules['num_events']))
-            # Sonar: Added deep copies here and there since some "event" fields will be stringified at some point
-            # down the line.
+
+        count = self.occurrences[key].count()  # get the last value from the dict which is the count
+        if count > self.rules['num_events']:
+            # Do a deep-copy, otherwise we lose the datetime type in the timestamp field of the last event
             event = copy.deepcopy(self.occurrences[key].data[-1][0])
-            if self.attach_related:
-                event['related_events'] = [copy.deepcopy(data[0]) for data in self.occurrences[key].data[:-1]]
+            event.update(key=key, count=count)
             self.add_match(event)
-            # Sonar: This is responsible for this ugly behaviour, as documented by one of the mainatainers:
-            #   :see https://github.com/Yelp/elastalert/issues/807#issuecomment-263678089
-            # self.occurrences.pop(key)
+        self.occurrences.pop(key)
 
     def garbage_collect(self, timestamp):
         """ Remove all occurrence data that is beyond the timeframe away """
@@ -112,39 +103,14 @@ class FlatlineRule(FrequencyRule):
         self.first_event = {}
 
     def check_for_match(self, key, end=True):
-        # This function gets called between every added document with end=True after the last
-        # We ignore the calls before the end because it may trigger false positives
-        if not end:
-            return
 
-        most_recent_ts = self.get_ts(self.occurrences[key].data[-1])
-        if self.first_event.get(key) is None:
-            self.first_event[key] = most_recent_ts
-
-        # Don't check for matches until timeframe has elapsed
-        if most_recent_ts - self.first_event[key] < self.rules['timeframe']:
-            return
-
-        # Match if, after removing old events, we hit num_events
-        count = self.occurrences[key].count()
+        count = self.occurrences[key].count()  # get the last value from the dict which is the count
         if count < self.rules['threshold']:
             # Do a deep-copy, otherwise we lose the datetime type in the timestamp field of the last event
             event = copy.deepcopy(self.occurrences[key].data[-1][0])
             event.update(key=key, count=count)
-            elastalert_logger.warning('event: {}'.format(event))
             self.add_match(event)
-
-            if not self.rules.get('forget_keys'):
-                # After adding this match, leave the occurrences windows alone since it will
-                # be pruned in the next add_data or garbage_collect, but reset the first_event
-                # so that alerts continue to fire until the threshold is passed again.
-                least_recent_ts = self.get_ts(self.occurrences[key].data[0])
-                timeframe_ago = most_recent_ts - self.rules['timeframe']
-                self.first_event[key] = min(least_recent_ts, timeframe_ago)
-            else:
-                # Forget about this key until we see it again
-                self.first_event.pop(key)
-                self.occurrences.pop(key)
+        self.occurrences.pop(key)
 
     def get_match_str(self, match):
         ts = match[self.rules['timestamp_field']]
@@ -169,5 +135,3 @@ class FlatlineRule(FrequencyRule):
                 ({self.ts_field: ts}, 0)
             )
             self.first_event.setdefault(key, ts)
-            if self.rules.get('query_key'):
-                self.check_for_match(key)

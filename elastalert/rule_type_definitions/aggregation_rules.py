@@ -65,6 +65,9 @@ class MetricAggregationRule(BaseAggregationRule):
     def __init__(self, *args):
         super(MetricAggregationRule, self).__init__(*args)
         self.ts_field = self.rules.get('timestamp_field', '@timestamp')
+        if self.rules.get('buffer_time'):
+            self.rules['timeframe'] = self.rules['buffer_time']
+
         if 'max_threshold' not in self.rules and 'min_threshold' not in self.rules:
             raise EAException("MetricAggregationRule must have at least one of either max_threshold or min_threshold")
 

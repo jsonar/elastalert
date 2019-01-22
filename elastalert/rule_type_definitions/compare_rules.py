@@ -71,7 +71,8 @@ class CompareRule(RuleType):
 
     def check_matches(self, timestamp, aggregation_data):
         for item in aggregation_data['{}'.format(self.agg_key)]['buckets']:
-            match = {self.rules['timestamp_field']: timestamp, self.agg_key: item['key'], "doc_count": item['doc_count']}
+            match = {'timestamp_field': self.rules['timestamp_field'], self.rules['timestamp_field']: timestamp,
+                     'watched_field': self.agg_key, 'watched_field_value': item['key'], "doc_count": item['doc_count']}
             self.add_match(match)
 
 
@@ -85,7 +86,6 @@ class BlacklistRule(CompareRule):
 
         self.item_clauses = self.generate_item_clauses(self.rules['blacklist'], self.rules['compare_key'])
 
-        # if self.rules['bundle_alerts']:
         self.rules['aggregation_query_element'] = self.generate_aggregation_query(self.rules['compare_key'])
 
     def compare(self, event):
@@ -152,6 +152,7 @@ class ChangeRule(CompareRule):
     def get_query_keys_in_timewindow(self, current_es, query, rule, timestamp_field, starttime, endtime, index):
         # Find what values of query key are inside the queried time range
         try:
+            #if rule.get('timeframe'):
             query_key_terms_query = {'query': {'bool': {'must': [
                 {'range': {timestamp_field: {'gt': starttime, 'lte': endtime}}}]}},
                 "aggs": {"key_values": {"terms": {"field": rule['query_key']}}}}

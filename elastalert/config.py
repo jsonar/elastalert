@@ -78,25 +78,8 @@ alerts_mapping = {
     'syslog': alerts.SyslogAlerter,
     'sonardispatcher': alerts.SonarDispatcherAlerter,
     'email': alerts.EmailAlerter,
-    'jira': alerts.JiraAlerter,
     'opsgenie': OpsGenieAlerter,
-    'stomp': alerts.StompAlerter,
-    'debug': alerts.DebugAlerter,
-    'command': alerts.CommandAlerter,
-    'sns': alerts.SnsAlerter,
-    'hipchat': alerts.HipChatAlerter,
-    'stride': alerts.StrideAlerter,
-    'ms_teams': alerts.MsTeamsAlerter,
-    'slack': alerts.SlackAlerter,
-    'pagerduty': alerts.PagerDutyAlerter,
-    'exotel': alerts.ExotelAlerter,
-    'twilio': alerts.TwilioAlerter,
-    'victorops': alerts.VictorOpsAlerter,
-    'telegram': alerts.TelegramAlerter,
-    'gitter': alerts.GitterAlerter,
-    'servicenow': alerts.ServiceNowAlerter,
-    'alerta': alerts.AlertaAlerter,
-    'post': alerts.HTTPPostAlerter
+    'debug': alerts.DebugAlerter
 }
 # A partial ordering of alert types. Relative order will be preserved in the resulting alerts list
 # For example, jira goes before email so the ticket # will be added to the resulting email.
