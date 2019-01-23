@@ -399,7 +399,7 @@ class SyslogFormattedMatch:
                                           {'$project': {'*': 1, 'match_time': 0, '_id': 0}},
                                           {"$out": {"format": "leef",
                                                     "fstype": "syslog",
-                                                    'product': 'SonarK',
+                                                    'product': self.product,
                                                     'eventid': event_id,
                                                     'product_version': self.version,
                                                     "syslog_params":
