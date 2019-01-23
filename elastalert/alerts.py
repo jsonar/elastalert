@@ -157,41 +157,41 @@ class SonarFormattedMatchString:
 
         text = "Rule \"{}\" generated an alert at {}.  ".format(self.rule['name'], self.match_time)
         if isinstance(self.rule['type'], BlacklistRule):
-            text += "{} occurrences of blacklisted value {} occurred in field {}".format(
+            text += "{} occurrences of blacklisted value {} occurred in field {}.".format(
                 self.match['doc_count'], self.match['watched_field_value'], self.match['watched_field'])
 
         elif isinstance(self.rule['type'], WhitelistRule):
-            text += "{} occurrences of non-whitelisted value {} occurred in field {}".format(
+            text += "{} occurrences of non-whitelisted value {} occurred in field {}.".format(
                 self.match['doc_count'], self.match['watched_field_value'], self.match['watched_field'])
 
         elif isinstance(self.rule['type'], FlatlineRule):
             if self.rule.get('query_key'):
-                text += "{} documents in timeframe with a value {} for key {}. Minimum of {} expected".format(
+                text += "{} events in timeframe with a value {} for key {}. Minimum of {} expected.".format(
                     self.match['num_hits'],
                     self.match['key'],
                     self.rule['query_key'],
                     self.rule['threshold'])
             else:
-                text += "{} documents in timeframe. Minimum of {} expected".format(self.match['num_hits'],
+                text += "{} events in timeframe. Minimum of {} expected".format(self.match['num_hits'],
                                                                                    self.rule['threshold'])
         elif isinstance(self.rule['type'], ChangeRule):
             text += "The values of {0} for value {1} of query key {2} contain {3} entries that differ from the value " \
-                    "of {0} when the rule last ran".format(self.rule['compare_key'], self.match['watched_field_value'],
+                    "of {0} when the rule last ran.".format(self.rule['compare_key'], self.match['watched_field_value'],
                                                            self.rule['query_key'], self.match['doc_count'])
 
         elif isinstance(self.rule['type'], FrequencyRule):
             if self.rule.get('query_key'):
-                text += "{} documents in timeframe where {} was {}. Less than {} documents expected".format(
+                text += "{} events in timeframe where {} was {}. Less than {} events expected.".format(
                     self.match['num_hits'],
                     self.rule['query_key'],
                     self.match[self.rule['query_key']],
                     self.rule['num_events']
                     )
             else:
-                text += "{} documents in timeframe. Maximum of {} expected".format(self.match['num_hits'],
+                text += "{} events in timeframe. Maximum of {} expected.".format(self.match['num_hits'],
                                                                                    self.rule['num_events'])
         elif isinstance(self.rule['type'], SpikeRule):
-            text += "{} hits in spike. {} hits in previous window".format(self.match['spike_count'],
+            text += "{} hits in spike. {} hits in previous window.".format(self.match['spike_count'],
                                                                           self.match['reference_count'])
         elif isinstance(self.rule['type'], CardinalityRule):
             if self.rule.get('query_key'):
@@ -203,20 +203,23 @@ class SonarFormattedMatchString:
                                                                self.rule['min_cardinality'],
                                                                self.rule['max_cardinality'])
             else:
-                text += "Cardinality of field {} is {}. This is not between {} and {}".format(
+                text += "Cardinality of field {} is {}. This is not between {} and {}.".format(
                     self.rule['cardinality_field'], self.match['cardinality'],
                         self.rule['min_cardinality'], self.rule['max_cardinality'])
 
         elif isinstance(self.rule['type'], NewTermsRule):
-            text += 'New term: {} occurred in field {}'.format(self.match[self.match['new_field']],
+            text += 'New term: {} occurred in field {}.'.format(self.match[self.match['new_field']],
                                                                self.match['new_field'])
 
         elif isinstance(self.rule['type'], MetricAggregationRule):
-            text += '{} is the {} of field {}. This is not between {} and {}'.format(
+            text += '{} is the {} of field {}. This is not between {} and {}.'.format(
                 self.match['{}_{}'.format(self.rule['metric_agg_key'], self.rule['metric_agg_type'])],
                 self.rule['metric_agg_type'], self.rule['metric_agg_key'], self.rule['min_threshold'],
                 self.rule['max_threshold']
             )
+
+        if self.rule.get('timeframe'):
+            text += ' The Timeframe for this rule was: {}'.format(self.rule.get('timeframe'))
 
         return text
 
@@ -226,7 +229,8 @@ class SyslogFormattedMatch:
     cef, leef or json format. It does this using the $out functionality of sonar, by storing the necessary data in a
     collection and then projecting all fields of the temporary collection to an out stage configured to send the data
     onwards to syslog in the appropriate format"""
-    def __init__(self, rule, match, dispatch_config, sonar_con):
+    def __init__(self, rule, match, sonar_con, syslog_host, syslog_port, syslog_protocol, output_format,
+                 vendor, product, version):
         """
         :param rule: The rule dictionary containing the parameters of the running rule
         :param match: Information about what triggered this alert. Contents vary by rule type.
@@ -238,40 +242,13 @@ class SyslogFormattedMatch:
         self.sonar_con = sonar_con
         self.sonargd = self.sonar_con['sonargd']
         self.alerts_collection = self.sonargd['tmp_alert']
-
-        try:
-            self.syslog_host = socket.gethostbyname(dispatch_config.get('remote_syslog', 'host'))
-        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError, socket.error):
-            elastalert_logger.warning('No host field set in remote_syslog section of dispatcher.conf.'
-                                      ' Defaulting to {}'.format(SYSLOG_DEFAULT_HOST))
-            self.syslog_host = SYSLOG_DEFAULT_HOST
-
-        try:
-            self.syslog_port = int(dispatch_config.get('remote_syslog', 'port'))
-        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            elastalert_logger.warning('No port field set in remote_syslog section of dispatcher.conf.'
-                                      ' Defaulting to {}'.format(SYSLOG_DEFAULT_PORT))
-            self.syslog_port = SYSLOG_DEFAULT_PORT
-
-        try:
-            self.syslog_protocol = dispatch_config.get('remote_syslog', 'protocol').lower()
-        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            elastalert_logger.warning('No protocol field set in remote_syslog section of dispatcher.conf.'
-                                      ' Defaulting to {}'.format(SYSLOG_DEFAULT_PROTOCOL))
-            self.syslog_protocol = SYSLOG_DEFAULT_PROTOCOL
-
-        try:
-            self.output_format = self.sonar_con['lmrm__sonarg']['lmrm__ae_config'].find_one()['syslogType']
-        except Exception as e:
-            elastalert_logger.error('Failed to get syslog output format. Error: {}'.format(e))
-            self.output_format = json
-
-        self.vendor = 'jSonar'
-        self.product = 'SonarK'
-        try:
-            self.version = os.environ['SONARK_VERSION']
-        except KeyError:
-            self.version = 'unknown_version'
+        self.syslog_host = syslog_host
+        self.syslog_port = syslog_port
+        self.syslog_protocol = syslog_protocol
+        self.output_format = output_format
+        self.vendor = vendor
+        self.product = product
+        self.version = version
 
     def output_alert(self):
         if self.output_format == 'cef':
@@ -286,6 +263,10 @@ class SyslogFormattedMatch:
         Inserts a json document containing the rule specific information about the event that triggered the alert
         """
         out_json = {'rule': self.rule['name'], 'match_time': self.match[self.rule['timestamp_field']]}
+
+        if self.rule.get('timeframe'):
+            out_json.update({'timeframe': str(self.rule.get('timeframe'))})
+
         if isinstance(self.rule['type'], BlacklistRule):
             out_json.update({'blacklist_field': self.match['watched_field'],
                              'blacklisted_value': self.match['watched_field_value'],
@@ -411,10 +392,15 @@ class SyslogFormattedMatch:
     def output_leef(self):
         # LEEF:2 | Vendor | Product | Version | EventID |\tkey1=value1\tkey2=value2
         self.generate_base_json()
-        self.alerts_collection.aggregate([{'$project': {'*': 1}},
+        doc = self.alerts_collection.find_one()
+        match_time = doc['match_time']
+        event_id = doc['_id']
+        self.alerts_collection.aggregate([{'$addFields': {'devTime': match_time}},
+                                          {'$project': {'*': 1, 'match_time': 0, '_id': 0}},
                                           {"$out": {"format": "leef",
                                                     "fstype": "syslog",
                                                     'product': 'SonarK',
+                                                    'eventid': event_id,
                                                     'product_version': self.version,
                                                     "syslog_params":
                                                         {"protocol": self.syslog_protocol,
@@ -440,8 +426,44 @@ class Alerter(object):
         self.resolve_rule_references(self.rule)
         self.dispatch_conf = ConfigParser.ConfigParser()
         self.dispatch_conf.read(DISPATCHER_CONF)
+
         self.sonar_uri = self.dispatch_conf.get('dispatch', 'sonarw_uri')
         self.sonar_con = self.get_sonar_connection(self.sonar_uri)
+
+        try:
+            self.syslog_host = socket.gethostbyname(self.dispatch_conf.get('remote_syslog', 'host'))
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError, socket.error):
+            elastalert_logger.warning('No host field set in remote_syslog section of dispatcher.conf.'
+                                      ' Defaulting to {}'.format(SYSLOG_DEFAULT_HOST))
+            self.syslog_host = SYSLOG_DEFAULT_HOST
+
+        try:
+            self.syslog_port = int(self.dispatch_conf.get('remote_syslog', 'port'))
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            elastalert_logger.warning('No port field set in remote_syslog section of dispatcher.conf.'
+                                      ' Defaulting to {}'.format(SYSLOG_DEFAULT_PORT))
+            self.syslog_port = SYSLOG_DEFAULT_PORT
+
+        try:
+            self.syslog_protocol = self.dispatch_conf.get('remote_syslog', 'protocol').lower()
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            elastalert_logger.warning('No protocol field set in remote_syslog section of dispatcher.conf.'
+                                      ' Defaulting to {}'.format(SYSLOG_DEFAULT_PROTOCOL))
+            self.syslog_protocol = SYSLOG_DEFAULT_PROTOCOL
+
+        try:
+            self.output_format = self.sonar_con['lmrm__sonarg']['lmrm__ae_config'].find_one()['syslogType']
+        except Exception as e:
+            elastalert_logger.error('Failed to get syslog output format. Error: {}'.format(e))
+            self.output_format = json
+
+        self.vendor = 'jSonar'
+        self.product = 'SonarW'
+        try:
+            self.version = self.sonar_con['admin']['sonarg'].find_one()['version']
+        except KeyError:
+            self.version = 'unknown_version'
+
 
     def resolve_rule_references(self, root):
         # Support referencing other top-level rule properties to avoid redundant copy/paste
@@ -650,7 +672,9 @@ class SyslogAlerter(Alerter):
 
     def alert(self, matches):
         for match in matches:
-            output = SyslogFormattedMatch(self.rule, match, self.dispatch_conf, self.sonar_con)
+            output = SyslogFormattedMatch(self.rule, match, self.sonar_con, self.syslog_host, self.syslog_port,
+                                          self.syslog_protocol, self.output_format, self.vendor,
+                                          self.product, self.version)
             output.output_alert()
             elastalert_logger.info('Alert sent to Syslog')
 
@@ -676,6 +700,7 @@ class SonarDispatcherAlerter(Alerter):
         Sends the alert to sonar dispatcher to be emailed to the system admin address configured in sonar
         :param matches: dictionary containing rule specific information about the event that raised the alert
         """
+        subject = '[SonarK Alerts] Rule "{}" alert'.format(self.rule['name'])
         if not self.rule['bundle_alerts']:
             for match in matches:
                 self.es_client.index(
@@ -685,7 +710,7 @@ class SonarDispatcherAlerter(Alerter):
                         'name': 'sonark_alerts',
                         'emails': self.rule['email'],
                         'type': 'send_email',
-                        'subject': "SonarK Alert generated message.",
+                        'subject': subject,
                         'email_content': str(SonarFormattedMatchString(self.rule, match))
                     })
 
@@ -703,7 +728,7 @@ class SonarDispatcherAlerter(Alerter):
                     'name': 'sonark_alerts',
                     'emails': self.rule['email'],
                     'type': 'send_email',
-                    'subject': "SonarK Alert generated message.",
+                    'subject': subject,
                     'email_content': email_content
                 })
 
