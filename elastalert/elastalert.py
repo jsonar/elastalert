@@ -32,6 +32,7 @@ from elasticsearch.exceptions import TransportError
 from enhancements import DropMatchException
 from rule_type_definitions.frequency_rules import FlatlineRule
 from rule_type_definitions.compare_rules import BlacklistRule, WhitelistRule, ChangeRule
+from rule_type_definitions.new_terms_rule import NewTermsRule
 from rule_type_definitions.cardinality_rule import CardinalityRule
 from saved_source_factory import SavedSourceFactory
 from util import add_raw_postfix
@@ -248,6 +249,9 @@ class ElastAlerter():
         elif isinstance(rule_inst, ChangeRule):
             query = rule_inst.extend_query(self.current_es, query, rule, timestamp_field, starttime, endtime, index)
 
+        elif isinstance(rule_inst, NewTermsRule):
+            rule_inst.check_initialization(query, rule, timestamp_field, starttime, endtime, index)
+
         return query
 
     @staticmethod
@@ -444,6 +448,7 @@ class ElastAlerter():
                     ignore_unavailable=True,
                     **extra_args
                 )
+                elastalert_logger.warning('res {}'.format(res))
                 self.total_hits = int(res['hits']['total'])
 
             if len(res.get('_shards', {}).get('failures', [])) > 0:
@@ -683,6 +688,7 @@ class ElastAlerter():
                 data = self.remove_duplicate_events(data, rule)
                 self.num_dupes += old_len - len(data)
 
+        elastalert_logger.warning('data {}'.format(data))
         # There was an exception while querying
         if data is None:
             return False

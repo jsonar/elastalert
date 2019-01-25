@@ -4,6 +4,10 @@ import datetime
 import logging
 import os
 from copy import deepcopy
+import urllib
+import urlparse
+
+import pymongo
 
 import dateutil.parser
 import dateutil.tz
@@ -14,6 +18,52 @@ from six import string_types
 
 logging.basicConfig()
 elastalert_logger = logging.getLogger('elastalert')
+
+
+def get_sonar_connection(uri):
+    """
+    Opens a sonar client using the specified uri, and reads the database names from sonar to check that the
+    connection is actually open.
+    :param uri: string in mongo uri format. Normally uses the internal user with the following format:
+    "mongodb://CN=admin@localhost:27117/admin?authSource=$external&authMechanism=PLAIN&certfile=/etc/sonar/ssl/client/admin/cert.pem"
+    :return: sonar client
+    """
+    client = pymongo.MongoClient(manipulate_uri(uri))
+    out = client.database_names()
+
+    return client
+
+
+def manipulate_uri(uri):
+    p = urlparse.urlparse(uri)
+    if not p.password and p.query:
+        password = None
+        qs = urlparse.parse_qs(p.query)
+        if 'certfile' in qs:
+            # password is certfile, with newlines replaced by backslash n
+            password = r'\n'.join([l.rstrip('\n')
+                                   for l in open(qs['certfile'][0], 'r')])
+            del qs['certfile']
+        uri = urlparse.urlunparse((p.scheme,
+                                   netloc_with_password(p, password),
+                                   p.path,
+                                   p.params,
+                                   urllib.urlencode(qs, doseq=True),
+                                   p.fragment))
+    return uri
+
+
+def netloc_with_password(p, password):
+    ret = ''
+    if p.username:
+        ret += p.username
+        if password:
+            ret += ':' + urllib.quote(password, safe='')
+        ret += '@'
+    ret += p.hostname
+    if p.port:
+        ret += ':' + str(p.port)
+    return ret
 
 
 def new_get_event_ts(ts_field):
