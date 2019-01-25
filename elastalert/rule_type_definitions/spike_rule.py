@@ -1,5 +1,6 @@
 from elastalert.rule_type_definitions.ruletypes import RuleType, EventWindow
 from elastalert.util import new_get_event_ts, EAException, hashable, lookup_es_key, elastalert_logger, pretty_ts
+from elastalert.util import (elasticsearch_client, get_sonar_connection)
 
 
 class SpikeRule(RuleType):
@@ -8,6 +9,19 @@ class SpikeRule(RuleType):
 
     def __init__(self, *args):
         super(SpikeRule, self).__init__(*args)
+        self.rules['aggregation_query_element'] = self.generate_aggregation_query()
+
+        self.es = elasticsearch_client(self.rules)
+
+    def generate_aggregation_query(self):
+        if self.rules.get('query_key'):
+            agg_query = {'{}'.format(key): {'terms': {'field': self.rules['query_key']}}}
+        return agg_query
+
+
+
+
+'''
         self.timeframe = self.rules['timeframe']
 
         self.ref_windows = {}
@@ -172,3 +186,4 @@ class SpikeRule(RuleType):
             if qk != 'all':
                 placeholder.update({self.rules['query_key']: qk})
             self.handle_event(placeholder, 0, qk)
+'''
