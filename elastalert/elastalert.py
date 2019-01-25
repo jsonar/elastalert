@@ -250,7 +250,26 @@ class ElastAlerter():
             query = rule_inst.extend_query(self.current_es, query, rule, timestamp_field, starttime, endtime, index)
 
         elif isinstance(rule_inst, NewTermsRule):
-            rule_inst.check_initialization(query, rule, timestamp_field, starttime, endtime, index)
+            if not rule_inst.check_initialization():
+                step = datetime.timedelta(**rule.get('window_step_size', {'days': 1}))
+                time_range_start = rule_inst.get_last_data_time(starttime)
+                tmp_start = time_range_start
+                tmp_end = time_range_start + step
+                while tmp_start < starttime:
+                    if 'saved_source_id' in rule:
+                        init_query = ElastAlerter.get_saved_source_query(rule, rule['saved_source_id'], tmp_start, tmp_end,
+                                                                    sort, timestamp_field, to_ts_func, desc, five)
+                    elif 'index' in rule and 'filter' in rule:
+                        init_query = ElastAlerter.get_filtered_query(rule['filter'], tmp_start, tmp_end, sort,
+                                                                timestamp_field, to_ts_func, desc, five)
+                    else:
+                        raise EAException('Invalid rule, missing saved_source_id or index field.')
+
+                    rule_inst.run_initialization(init_query, rule, timestamp_field, tmp_start, tmp_end, index)
+                    tmp_start += step
+                    tmp_end += step
+                    if tmp_end > starttime:
+                        tmp_end = starttime
 
         return query
 
@@ -286,7 +305,12 @@ class ElastAlerter():
                                five=False):
         saved_source = SavedSourceFactory(conf).create(saved_source_id)
         saved_source_query = saved_source.get_query()
-        timestamp_field = saved_source.get_timestamp_field()  # TODO: Deal when saved source have no timestamp field.
+        try:
+            timestamp_field = saved_source.get_timestamp_field()  # TODO: Deal when saved source have no timestamp field.
+        except KeyError as e:
+            elastalert_logger.error('No timestamp field found in saved source. '
+                                    'Please check that an time field was defined during index creation. '
+                                    'Error: {}'.format(e))
 
         starttime = to_ts_func(starttime)
         endtime = to_ts_func(endtime)
@@ -668,6 +692,7 @@ class ElastAlerter():
         :param end: The latest time to query.
         Returns True on success and False on failure.
         """
+        elastalert_logger.warning('_______________running_query____________')
         if start is None:
             start = self.get_index_start(get_index_util(rule))
         if end is None:
@@ -931,6 +956,7 @@ class ElastAlerter():
         :param endtime: The latest timestamp to query.
         :return: The number of matches that the rule produced.
         """
+        elastalert_logger.warning('_____________Running_rule__________________')
         run_start = time.time()
 
         self.current_es = elasticsearch_client(rule)

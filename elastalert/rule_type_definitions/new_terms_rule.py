@@ -1,6 +1,8 @@
 import datetime
 import ConfigParser
 
+import pymongo
+
 from elastalert.constants import DISPATCHER_CONF, NEW_TERM_DB, NEW_TERM_COLL
 from elastalert.rule_type_definitions.ruletypes import RuleType
 from elastalert.util import (add_raw_postfix, EAException, elastalert_logger, elasticsearch_client, format_index, get_index,
@@ -25,9 +27,8 @@ class NewTermsRule(RuleType):
         self.terms_collection = self.sonar_con[NEW_TERM_DB][NEW_TERM_COLL]
         elastalert_logger.warning('___________init New Terms RUle_______________')
 
-        self.terms_collection.insert_one({'rule': self.rules['name'],
-                                          'term': 'lmrm__SONAR_ALERT_RULE_ACTIVE__',
-                                          'time': datetime.datetime.utcnow()})
+        if not list(self.terms_collection.find({'rule': self.rules['name'], 'time': {'$exists': False}}).limit(1)):
+            self.terms_collection.insert_one({'rule': self.rules['name']})
 
         self.es = elasticsearch_client(self.rules)
 
@@ -47,53 +48,75 @@ class NewTermsRule(RuleType):
         elastalert_logger.warning('terms list = {}'.format(terms_list))
         end_window = self.rules['starttime']
         start_window = self.rules['starttime'] - datetime.timedelta(**self.rules.get('terms_window_size', {'days': 30}))
-        elastalert_logger.warning('startwindow: {}  endwindow: {}'.format(start_window, end_window))
+
         pipe = [{'$match': {'$and': [{'rule': self.rules['name']},
-                                     {'time': {'$lte': end_window}},
-                                     {'time': {'$gte': start_window}}]}},
+                                     {'$or': [{'$and': [{'time': {'$lte': end_window}},
+                                                        {'time': {'$gte': start_window}}]},
+                                              {'time': {'$exists': False}}
+                                              ]}
+                                     ]}},
                 {'$group': {'_id': '$rule', 'vals': {'$addToSet': "$term"}}},
                 {'$project': {
                     'new_terms': {'$filter': {'input': terms_list, 'as': 'value', 'cond': {'$not': {
                         '$setIsSubset': [['$$value'], '$vals']}
                     }}}}}]
 
-        new_terms = list(self.terms_collection.aggregate(pipe))[0]['new_terms']
+        try:
+            new_terms = list(self.terms_collection.aggregate(pipe))[0]['new_terms']
+        except IndexError:
+            new_terms = []
+
         elastalert_logger.warning('new_terms = {}'.format(new_terms))
         time_now = end_window + datetime.timedelta(**self.rules.get('terms_window_size', {'days': 30}))/2
-        elastalert_logger.warning(time_now)
 
-        update = self.terms_collection.initialize_ordered_bulk_op()
+        if new_terms or terms_list:
+            update = self.terms_collection.initialize_ordered_bulk_op()
 
-        for term in new_terms:
-            match = {'timestamp_field': self.rules['timestamp_field'], self.rules['timestamp_field']: timestamp,
-                     'watched_field': self.agg_key, 'watched_field_value': term}
-            self.add_match(match)
-            # add the new terms to the collection of known terms
-            update.insert({'rule': self.rules['name'], 'term': term, 'time': time_now})
+            for term in new_terms:
+                match = {'timestamp_field': self.rules['timestamp_field'], self.rules['timestamp_field']: timestamp,
+                         'watched_field': self.agg_key, 'watched_field_value': term}
+                self.add_match(match)
+                # add the new terms to the collection of known terms
+                update.insert({'rule': self.rules['name'], 'term': term, 'time': time_now})
 
-        for term in terms_list:
-            update.find({'rule': self.rules['name'], 'term': term}).update({'$set': {'time': time_now}})
+            for term in terms_list:
+                update.find({'rule': self.rules['name'], 'term': term}).update({'$set': {'time': time_now}})
 
-        update.execute()
+            update.execute()
 
         self.clean_sonar_collection(start_window)
 
-    def check_initialization(self, query, rule, timestamp_field, starttime, endtime, index):
-        if self.initialized == False:
-            start_window = self.rules['starttime'] - datetime.timedelta(**self.rules.get('terms_window_size', {'days': 30}))
-            self.terms_collection.remove({'rule': self.rules['name'], 'time': {'$lt': start_window}})
+    def check_initialization(self):
+        start_window = self.rules['starttime'] - datetime.timedelta(**self.rules.get('terms_window_size', {'days': 30}))
+        self.terms_collection.remove({'rule': self.rules['name'], 'time': {'$lt': start_window}})
+        if self.initialized:
+            return True
+        else:
+            self.initialized = True
+            return False
 
-            step = datetime.timedelta(**self.rules.get('window_step_size', {'days': 1}))
+    def get_last_data_time(self, startime):
+        start_window = startime - datetime.timedelta(**self.rules.get('terms_window_size', {'days': 30}))
+        last_data = self.terms_collection.find_one({'rule': self.rules['name'],
+                                                    'time': {'$gt': start_window}})  # .sort(['time', pymongo.DESCENDING])
+        elastalert_logger.warning('last_data = {}'.format(last_data))
+        if last_data:
+            return last_data['time']
+        else:
+            return start_window
+
+    def run_initialization(self, query, rule, timestamp_field, starttime, endtime, index):
+
+            # step = datetime.timedelta(**self.rules.get('window_step_size', {'days': 1}))
             elastalert_logger.warning('query = {}'.format(query))
             query['aggs'] = self.rules['aggregation_query_element']
 
             # TODO break up run into smaller segments
 
-            query['query']['bool']['must'].insert(0, {'range': {self.rules[timestamp_field]: {'gt': start_window,
-                                                                                 'lte': starttime}}})
             aggregation_data = self.es.search(index=index, doc_type=rule.get('doc_type'), size=0,
                                                           body=query, ignore_unavailable=True)
-            terms = [item['key'] for item in aggregation_data['hits']['aggregations'][self.rules['query_key']['buckets']]]
+            elastalert_logger.warning('aggregation_data = {}'.format(aggregation_data['aggregations'][self.rules['query_key']]))
+            terms = [item['key'] for item in aggregation_data['aggregations'][self.rules['query_key']['buckets']]]
             elastalert_logger.warning('initial_response = {}'.format(terms))
 
 
