@@ -265,7 +265,10 @@ class ElastAlerter():
                     else:
                         raise EAException('Invalid rule, missing saved_source_id or index field.')
 
-                    rule_inst.run_initialization(init_query, rule, timestamp_field, tmp_start, tmp_end, index)
+                    term_size = rule.get('terms_size', 50)
+                    init_query = self.get_aggregation_query(init_query, rule, rule['query_key'], term_size, rule['timestamp_field'])
+
+                    rule_inst.run_initialization(init_query, rule, index)
                     tmp_start += step
                     tmp_end += step
                     if tmp_end > starttime:
@@ -472,7 +475,6 @@ class ElastAlerter():
                     ignore_unavailable=True,
                     **extra_args
                 )
-                elastalert_logger.warning('res {}'.format(res))
                 self.total_hits = int(res['hits']['total'])
 
             if len(res.get('_shards', {}).get('failures', [])) > 0:
@@ -713,7 +715,6 @@ class ElastAlerter():
                 data = self.remove_duplicate_events(data, rule)
                 self.num_dupes += old_len - len(data)
 
-        elastalert_logger.warning('data {}'.format(data))
         # There was an exception while querying
         if data is None:
             return False
