@@ -713,7 +713,7 @@ class ElastAlerter():
                 old_len = len(data)
                 data = self.remove_duplicate_events(data, rule)
                 self.num_dupes += old_len - len(data)
-
+        elastalert_logger.warning('data = {}'.format(data))
         # There was an exception while querying
         if data is None:
             return False
