@@ -1,6 +1,5 @@
-from elastalert.rule_type_definitions.ruletypes import RuleType, EventWindow
-from elastalert.util import new_get_event_ts, EAException, hashable, lookup_es_key, elastalert_logger, pretty_ts
-from elastalert.util import (elasticsearch_client, get_sonar_connection)
+from elastalert.rule_type_definitions.ruletypes import RuleType
+from elastalert.util import (elasticsearch_client)
 
 
 class SpikeRule(RuleType):
@@ -9,42 +8,50 @@ class SpikeRule(RuleType):
 
     def __init__(self, *args):
         super(SpikeRule, self).__init__(*args)
-        elastalert_logger.warning('______________Spike_rule_init_________________')
-        if self.rules.get(['query_key']):
-            self.rules['use_count_query'] = False
-            self.rules['aggregation_query_element'] = True
-        else:
-            self.rules['use_count_query'] = True
-            self.rules['aggregation_query_element'] = False
-
+        self.ref_data = None
         self.es = elasticsearch_client(self.rules)
 
-    def generate_aggregation_query(self):
-        agg_query = {'{}'.format(self.rules['query_key']): {'terms': {'field': self.rules['query_key']}}}
-        return agg_query
+    def add_terms_data(self, terms):
+        for time, data in terms.items():
+            key_dict = {item['key']: 1 for item in data}
+            missing_keys = [{'key': key, 'doc_count': 0} for key in self.ref_data if not key_dict.get(key)]
+            data.extend(missing_keys)
+            for item in data:
+                self.check_matches(item['key'], item['doc_count'], time)
+        self.ref_data = None
 
-
-'''
     def add_count_data(self, data):
         """ Add count data to the rule. Data should be of the form {ts: count}. """
-        elastalert_logger.warning('adding count data {}'.format(data))
-        if len(data) > 1:
-            raise EAException('add_count_data can only accept one count at a time')
-        for ts, count in data.iteritems():
-            self.handle_event({self.ts_field: ts}, count, 'all')
+        for time, count in data.items():
+            self.check_matches(None, count, time)
+        self.ref_data = None
 
-    def add_aggregation_data(self, payload):
-        elastalert_logger.warning('adding agg data {}'.format(payload))
-        for timestamp, payload_data in payload.iteritems():
-            self.check_matches(timestamp, payload_data)
+    def check_matches(self, key, count, time):
+        ref_threshold = self.rules['threshold_ref']
+        match_treshold = self.rules['threshold_cur']
+        spike_height = self.rules['spike_height']
+        spike_type = self.rules['spike_type']
+        key_matches = False
+        if count >= match_treshold:
+            ref_val = self.ref_data.get(key, 0)
+            if ref_val >= ref_threshold:
+                if spike_type in ['up', 'both']:
+                    if count >= ref_val * spike_height:
+                        key_matches = True
+                if spike_type in ['down', 'both']:
+                    if count * spike_height <= ref_val:
+                        key_matches = True
+                if key_matches:
+                    match = {'timestamp_field': self.rules['timestamp_field'], self.rules['timestamp_field']: time,
+                             'spike_count': count, 'reference_count': ref_val, 'key': key}
+                    self.add_match(match)
 
-    def check_matches(self):
-        pass
-        # TODO check that reference is above ref threshold
-        # TODO check that match is above match threshold
-        # TODO if spike up check that match > 3xreference
-        # TODO if spike down check that matchX3 < reference
-
-    def query_reference_window(self):
-        pass
-'''
+    def query_reference_window(self, query, rule, index):
+        if self.rules.get('use_terms_query'):
+            self.ref_data = self.es.search(index=index, doc_type=rule['doc_type'], body=query, size=0,
+                                           ignore_unavailable=True)
+            self.ref_data = self.ref_data['aggregations']['counts']['buckets']
+            self.ref_data = {item['key']: item['doc_count'] for item in self.ref_data}
+        else:
+            self.ref_data = self.es.count(index=index, doc_type=rule['doc_type'], body=query, ignore_unavailable=True)
+            self.ref_data = {None: self.ref_data['count']}

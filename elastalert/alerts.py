@@ -192,8 +192,15 @@ class SonarFormattedMatchString:
                 text += "{} events in timeframe. Maximum of {} expected.".format(self.match['num_hits'],
                                                                                    self.rule['num_events'])
         elif isinstance(self.rule['type'], SpikeRule):
-            text += "{} hits in spike. {} hits in previous window.".format(self.match['spike_count'],
-                                                                          self.match['reference_count'])
+            if self.rule.get('query_key'):
+                text += "{} hits in spike for value {} of query_key {}. {} hits in previous window.".format(
+                    self.match['spike_count'],
+                    self.rule['query_key'],
+                    self.match['key'],
+                    self.match['reference_count'])
+            else:
+                text += "{} hits in spike. {} hits in previous window.".format(self.match['spike_count'],
+                                                                              self.match['reference_count'])
         elif isinstance(self.rule['type'], CardinalityRule):
             if self.rule.get('query_key'):
                 text += "Cardinality of field {} for value {} of query key {} is {}. " \
@@ -232,12 +239,7 @@ class SyslogFormattedMatch:
     onwards to syslog in the appropriate format"""
     def __init__(self, rule, match, sonar_con, syslog_host, syslog_port, syslog_protocol, output_format,
                  vendor, product, version):
-        """
-        :param rule: The rule dictionary containing the parameters of the running rule
-        :param match: Information about what triggered this alert. Contents vary by rule type.
-        :param dispatch_config: config parser loaded from dispatcher.conf
-        :param sonar_con: Pymongo connection to sonar
-        """
+
         self.rule = rule
         self.match = match
         self.sonar_con = sonar_con
@@ -305,8 +307,14 @@ class SyslogFormattedMatch:
                 out_json.update({'frequency': self.match['num_hits'], 'threshold': self.rule['num_events']})
 
         elif isinstance(self.rule['type'], SpikeRule):
-            out_json.update({'spike_window_hits': self.match['spike_count'],
-                             'reference_window_hits': self.match['reference_count']})
+            if self.rule.get('query_key'):
+                out_json.update({'spike_window_hits': self.match['spike_count'],
+                                 'reference_window_hits': self.match['reference_count'],
+                                 'query_key': self.rule['query_key'],
+                                 'key_value': self.match['key']})
+            else:
+                out_json.update({'spike_window_hits': self.match['spike_count'],
+                                 'reference_window_hits': self.match['reference_count']})
 
         elif isinstance(self.rule['type'], CardinalityRule):
             if self.rule.get('query_key'):

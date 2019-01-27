@@ -34,6 +34,7 @@ from rule_type_definitions.frequency_rules import FlatlineRule
 from rule_type_definitions.compare_rules import BlacklistRule, WhitelistRule, ChangeRule
 from rule_type_definitions.new_terms_rule import NewTermsRule
 from rule_type_definitions.cardinality_rule import CardinalityRule
+from rule_type_definitions.spike_rule import SpikeRule
 from saved_source_factory import SavedSourceFactory
 from util import add_raw_postfix
 from util import cronite_datetime_to_timestamp
@@ -231,17 +232,12 @@ class ElastAlerter():
             writeback_index += '_error'
         return writeback_index
 
-    def get_query(self, rule, starttime=None, endtime=None, sort=True, timestamp_field='@timestamp', to_ts_func=dt_to_ts, desc=False,
-                  five=False, index= None):
+    def get_query(self, rule, starttime=None, endtime=None, sort=True, timestamp_field='@timestamp',
+                  to_ts_func=dt_to_ts, desc=False, five=False, index=None):
 
         rule_inst = rule['type']
 
-        if 'saved_source_id' in rule:
-            query = ElastAlerter.get_saved_source_query(rule, rule['saved_source_id'], starttime, endtime, sort, timestamp_field, to_ts_func, desc, five)
-        elif 'index' in rule and 'filter' in rule:
-            query = ElastAlerter.get_filtered_query(rule['filter'], starttime, endtime, sort, timestamp_field, to_ts_func, desc, five)
-        else:
-            raise EAException('Invalid rule, missing saved_source_id or index field.')
+        query = self.get_base_query(rule, starttime, endtime, sort, timestamp_field, to_ts_func,desc, five)
 
         if isinstance(rule_inst, (BlacklistRule, WhitelistRule)):
             query = rule_inst.extend_query(query)
@@ -256,29 +252,54 @@ class ElastAlerter():
                 tmp_start = time_range_start
                 tmp_end = time_range_start + step
                 while tmp_start < starttime:
-                    if 'saved_source_id' in rule:
-                        init_query = ElastAlerter.get_saved_source_query(rule, rule['saved_source_id'], tmp_start, tmp_end,
-                                                                    sort, timestamp_field, to_ts_func, desc, five)
-                    elif 'index' in rule and 'filter' in rule:
-                        init_query = ElastAlerter.get_filtered_query(rule['filter'], tmp_start, tmp_end, sort,
-                                                                timestamp_field, to_ts_func, desc, five)
-                    else:
-                        raise EAException('Invalid rule, missing saved_source_id or index field.')
-
+                    init_query = self.get_base_query(rule, tmp_start, tmp_end, sort, timestamp_field, to_ts_func,desc,
+                                                     five)
                     term_size = rule.get('terms_size', 50)
-                    init_query = self.get_aggregation_query(init_query, rule, rule['query_key'], term_size, rule['timestamp_field'])
-
+                    init_query = self.get_aggregation_query(init_query, rule, rule['query_key'],
+                                                            term_size, rule['timestamp_field'])
                     rule_inst.run_initialization(init_query, rule, index)
                     tmp_start += step
                     tmp_end += step
                     if tmp_end > starttime:
                         tmp_end = starttime
 
+        elif isinstance(rule_inst, SpikeRule):
+            ref_start = starttime - rule['timeframe']
+            ref_end = starttime
+            ref_query = self.get_base_query(rule, ref_start, ref_end, sort, timestamp_field, to_ts_func,desc,
+                                                     five)
+            if rule.get('use_terms_query'):
+                size = rule.get('terms_size', 50)
+                ref_query = self.get_terms_query(ref_query, size, rule.get('query_key'), rule['five'])
+
+            try:
+                rule_inst.query_reference_window(ref_query, rule, index)
+            except ElasticsearchException as e:
+                # Elasticsearch sometimes gives us GIGANTIC error messages
+                # (so big that they will fill the entire terminal buffer)
+                if len(str(e)) > 1024:
+                    e = str(e)[:1024] + '... (%d characters removed)' % (len(str(e)) - 1024)
+                self.handle_error('Error getting refference data for terms query: %s' % (e),
+                                  {'rule': rule['name'], 'query': query})
+                return None
+
+        return query
+
+    def get_base_query(self, rule, starttime=None, endtime=None, sort=True, timestamp_field='@timestamp',
+                       to_ts_func=dt_to_ts, desc=False, five=False):
+        if 'saved_source_id' in rule:
+            query = ElastAlerter.get_saved_source_query(rule, rule['saved_source_id'], starttime, endtime, sort,
+                                                        timestamp_field, to_ts_func, desc, five)
+        elif 'index' in rule and 'filter' in rule:
+            query = ElastAlerter.get_filtered_query(rule['filter'], starttime, endtime, sort, timestamp_field,
+                                                    to_ts_func, desc, five)
+        else:
+            raise EAException('Invalid rule, missing saved_source_id or index field.')
         return query
 
     @staticmethod
-    def get_filtered_query(filters, starttime=None, endtime=None, sort=True, timestamp_field='@timestamp', to_ts_func=dt_to_ts, desc=False,
-                           five=False):
+    def get_filtered_query(filters, starttime=None, endtime=None, sort=True, timestamp_field='@timestamp',
+                           to_ts_func=dt_to_ts, desc=False, five=False):
         """ Returns a query dict that will apply a list of filters, filter by
         start and end time, and sort results by timestamp.
 
@@ -304,12 +325,12 @@ class ElastAlerter():
         return query
 
     @staticmethod
-    def get_saved_source_query(conf, saved_source_id, starttime=None, endtime=None, sort=True, timestamp_field='@timestamp', to_ts_func=dt_to_ts, desc=False,
-                               five=False):
+    def get_saved_source_query(conf, saved_source_id, starttime=None, endtime=None, sort=True,
+                               timestamp_field='@timestamp', to_ts_func=dt_to_ts, desc=False, five=False):
         saved_source = SavedSourceFactory(conf).create(saved_source_id)
         saved_source_query = saved_source.get_query()
         try:
-            timestamp_field = saved_source.get_timestamp_field()  # TODO: Deal when saved source have no timestamp field.
+            timestamp_field = saved_source.get_timestamp_field()  # TODO: Deal when saved source have no timestamp field
         except KeyError as e:
             elastalert_logger.error('No timestamp field found in saved source. '
                                     'Please check that an time field was defined during index creation. '
@@ -527,6 +548,7 @@ class ElastAlerter():
             rule,
             starttime,
             endtime,
+            index=index,
             timestamp_field=rule['timestamp_field'],
             sort=False,
             to_ts_func=rule['dt_to_ts'],
@@ -581,6 +603,7 @@ class ElastAlerter():
             rule,
             starttime,
             endtime,
+            index=index,
             timestamp_field=rule['timestamp_field'],
             sort=False,
             to_ts_func=rule['dt_to_ts'],
@@ -713,7 +736,6 @@ class ElastAlerter():
                 old_len = len(data)
                 data = self.remove_duplicate_events(data, rule)
                 self.num_dupes += old_len - len(data)
-        elastalert_logger.warning('data = {}'.format(data))
         # There was an exception while querying
         if data is None:
             return False
