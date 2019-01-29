@@ -22,6 +22,7 @@ from constants import DISPATCHER_CONF, SYSLOG_DEFAULT_HOST, SYSLOG_DEFAULT_PORT,
 from util import EAException
 from util import elasticsearch_client
 from util import elastalert_logger
+from util import get_sonar_connection
 from util import lookup_es_key
 
 from rule_type_definitions.aggregation_rules import MetricAggregationRule
@@ -191,8 +192,15 @@ class SonarFormattedMatchString:
                 text += "{} events in timeframe. Maximum of {} expected.".format(self.match['num_hits'],
                                                                                    self.rule['num_events'])
         elif isinstance(self.rule['type'], SpikeRule):
-            text += "{} hits in spike. {} hits in previous window.".format(self.match['spike_count'],
-                                                                          self.match['reference_count'])
+            if self.rule.get('query_key'):
+                text += "{} hits in spike for value {} of query_key {}. {} hits in previous window.".format(
+                    self.match['spike_count'],
+                    self.rule['query_key'],
+                    self.match['key'],
+                    self.match['reference_count'])
+            else:
+                text += "{} hits in spike. {} hits in previous window.".format(self.match['spike_count'],
+                                                                              self.match['reference_count'])
         elif isinstance(self.rule['type'], CardinalityRule):
             if self.rule.get('query_key'):
                 text += "Cardinality of field {} for value {} of query key {} is {}. " \
@@ -208,8 +216,8 @@ class SonarFormattedMatchString:
                         self.rule['min_cardinality'], self.rule['max_cardinality'])
 
         elif isinstance(self.rule['type'], NewTermsRule):
-            text += 'New term: {} occurred in field {}.'.format(self.match[self.match['new_field']],
-                                                               self.match['new_field'])
+            text += 'New term: {} occurred in field {}.'.format(self.match['watched_field_value'],
+                                                               self.match['watched_field'])
 
         elif isinstance(self.rule['type'], MetricAggregationRule):
             text += '{} is the {} of field {}. This is not between {} and {}.'.format(
@@ -231,12 +239,7 @@ class SyslogFormattedMatch:
     onwards to syslog in the appropriate format"""
     def __init__(self, rule, match, sonar_con, syslog_host, syslog_port, syslog_protocol, output_format,
                  vendor, product, version):
-        """
-        :param rule: The rule dictionary containing the parameters of the running rule
-        :param match: Information about what triggered this alert. Contents vary by rule type.
-        :param dispatch_config: config parser loaded from dispatcher.conf
-        :param sonar_con: Pymongo connection to sonar
-        """
+
         self.rule = rule
         self.match = match
         self.sonar_con = sonar_con
@@ -304,8 +307,14 @@ class SyslogFormattedMatch:
                 out_json.update({'frequency': self.match['num_hits'], 'threshold': self.rule['num_events']})
 
         elif isinstance(self.rule['type'], SpikeRule):
-            out_json.update({'spike_window_hits': self.match['spike_count'],
-                             'reference_window_hits': self.match['reference_count']})
+            if self.rule.get('query_key'):
+                out_json.update({'spike_window_hits': self.match['spike_count'],
+                                 'reference_window_hits': self.match['reference_count'],
+                                 'query_key': self.rule['query_key'],
+                                 'key_value': self.match['key']})
+            else:
+                out_json.update({'spike_window_hits': self.match['spike_count'],
+                                 'reference_window_hits': self.match['reference_count']})
 
         elif isinstance(self.rule['type'], CardinalityRule):
             if self.rule.get('query_key'):
@@ -324,8 +333,8 @@ class SyslogFormattedMatch:
                                  })
 
         elif isinstance(self.rule['type'], NewTermsRule):
-            out_json.update({'new_term': self.match[self.match['new_field']],
-                             'new_term_field': self.match['new_field']})
+            out_json.update({'new_term': self.match['watched_field_value'],
+                             'new_term_field': self.match['watched_field']})
 
         elif isinstance(self.rule['type'], MetricAggregationRule):
             out_json.update({'metric-agg_result': self.match['{}_{}'.format(self.rule['metric_agg_key'],
@@ -428,7 +437,7 @@ class Alerter(object):
         self.dispatch_conf.read(DISPATCHER_CONF)
 
         self.sonar_uri = self.dispatch_conf.get('dispatch', 'sonarw_uri')
-        self.sonar_con = self.get_sonar_connection(self.sonar_uri)
+        self.sonar_con = get_sonar_connection(self.sonar_uri)
 
         try:
             self.syslog_host = socket.gethostbyname(self.dispatch_conf.get('remote_syslog', 'host'))
@@ -491,50 +500,6 @@ class Alerter(object):
                 return self.rule[strValue[1:-1]]
         else:
             return value
-
-    def get_sonar_connection(self, uri):
-        """
-        Opens a sonar client using the specified uri, and reads the database names from sonar to check that the
-        connection is actually open.
-        :param uri: string in mongo uri format. Normally uses the internal user with the following format:
-        "mongodb://CN=admin@localhost:27117/admin?authSource=$external&authMechanism=PLAIN&certfile=/etc/sonar/ssl/client/admin/cert.pem"
-        :return: sonar client
-        """
-        client = pymongo.MongoClient(self.manipulate_uri(uri))
-        out = client.database_names()
-
-        return client
-
-    def manipulate_uri(self, uri):
-        p = urlparse.urlparse(uri)
-        if not p.password and p.query:
-            password = None
-            qs = urlparse.parse_qs(p.query)
-            if 'certfile' in qs:
-                # password is certfile, with newlines replaced by backslash n
-                password = r'\n'.join([l.rstrip('\n')
-                                       for l in open(qs['certfile'][0], 'r')])
-                del qs['certfile']
-            uri = urlparse.urlunparse((p.scheme,
-                                       self.netloc_with_password(p, password),
-                                       p.path,
-                                       p.params,
-                                       urllib.urlencode(qs, doseq=True),
-                                       p.fragment))
-        return uri
-
-    @staticmethod
-    def netloc_with_password(p, password):
-        ret = ''
-        if p.username:
-            ret += p.username
-            if password:
-                ret += ':' + urllib.quote(password, safe='')
-            ret += '@'
-        ret += p.hostname
-        if p.port:
-            ret += ':' + str(p.port)
-        return ret
 
     def alert(self, match):
         """ Send an alert. Match is a dictionary of information about the alert.
