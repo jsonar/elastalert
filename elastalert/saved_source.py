@@ -1,9 +1,12 @@
 """
 @author Joey Andres <joey@jsonar.com>
 """
+import ast
 import json
+import re
 from copy import deepcopy
 
+from util import elastalert_logger
 from util import elasticsearch_client
 from util import get_filter_doc
 
@@ -22,6 +25,31 @@ class SavedSource:
         self.conf = conf
         self.es = self._get_es_client(conf)
         self.raw_data = self.es.get(index='.kibana', doc_type='doc', id=self.id)
+        self.scripted_fields = self.get_scripted_fields()
+        # self.scripted_fields = {}
+
+    def get_scripted_fields(self):
+        scripted_fields = {}
+        try:
+            saved_object_index_pattern = self.es.get(
+                index='.kibana', doc_type='doc', id='index-pattern:{}'.format(self.get_index_id()))
+
+            scripts = saved_object_index_pattern['_source']['index-pattern']['fields']
+            scripts = re.sub(r'\"{', '{', scripts)
+            scripts = re.sub(r'}\"', '}', scripts)
+            scripts = re.sub(r'\\\"', r'"', scripts)
+            scripts = re.sub(r'true', 'True', scripts)
+            scripts = re.sub(r'false', 'False', scripts)
+            scripts = ast.literal_eval(scripts)
+            for item in scripts:
+                if item.get('scripted'):
+                    script = json.dumps(item['script'])
+                    scripted_fields[item['name']] = {"script": {"inline": script, "lang": "sonar"}}
+
+        except Exception as e:
+            elastalert_logger.exception('Failed to get scripted fields. Error {}'.format(e))
+
+        return scripted_fields
 
     def _get_type(self):
         pass
@@ -44,8 +72,8 @@ class SavedSource:
         """
         saved_object_index_pattern = self.es.get(
             index='.kibana', doc_type='doc', id='index-pattern:{}'.format(self.get_index_id()))
-        return saved_object_index_pattern['_source']['index-pattern']['title']
 
+        return saved_object_index_pattern['_source']['index-pattern']['title']
 
     def get_index_id(self):
         """
@@ -89,14 +117,16 @@ class SavedSource:
 
         must_not_docs = must_not_docs + filter_doc['must_not']
 
+
         return {
             'query': {
                 'filtered': {
                     'must': must_docs,
                     'must_not': must_not_docs
                 }
-            }
-        }
+            },
+            'script_fields': self.scripted_fields
+        }  # TODO append scripted fields
 
     def get_timestamp_field(self):
         """
