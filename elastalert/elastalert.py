@@ -718,7 +718,6 @@ class ElastAlerter():
         :param end: The latest time to query.
         Returns True on success and False on failure.
         """
-        elastalert_logger.warning('_________running query____________')
         if start is None:
             start = self.get_index_start(get_index_util(rule))
         if end is None:
@@ -980,7 +979,6 @@ class ElastAlerter():
         :param endtime: The latest timestamp to query.
         :return: The number of matches that the rule produced.
         """
-        elastalert_logger.warning('___________running rule {}___________'.format(rule['name']))
         run_start = time.time()
 
         self.current_es = elasticsearch_client(rule)
