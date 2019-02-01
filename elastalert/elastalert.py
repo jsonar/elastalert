@@ -1011,6 +1011,7 @@ class ElastAlerter():
         tmp_endtime = rule['starttime']
 
         if not rule.get('timeframe') or isinstance(rule['type'], ChangeRule):
+            segment_size = self.continuous_segment_fitting(endtime, rule['starttime'], segment_size)
             while endtime - rule['starttime'] >= segment_size:
                 tmp_endtime = tmp_endtime + segment_size
                 elastalert_logger.info(
@@ -1024,11 +1025,7 @@ class ElastAlerter():
 
                 # Update segment_size since cron segment_size could vary.
                 segment_size = self.get_segment_size(rule, rule['starttime'])
-
-                percent_95_segment_size = datetime.timedelta(seconds=0.95 * segment_size.total_seconds())
-                if percent_95_segment_size < endtime - rule['starttime'] < segment_size:
-                    # Special case to handle the timing issues that sometimes delay results by one run interval
-                    segment_size = endtime - rule['starttime']
+                segment_size = self.continuous_segment_fitting(endtime, rule['starttime'], segment_size)
 
         if rule.get('aggregation_query_element'):
             if rule.get('timeframe') and not rule.get('use_run_every_query_size'):
@@ -1110,6 +1107,14 @@ class ElastAlerter():
         self.writeback('elastalert_status', body)
 
         return num_matches, endtime
+
+    def continuous_segment_fitting(self, endtime, starttime, segment_size):
+        percent_95_segment_size = datetime.timedelta(seconds=0.95 * segment_size.total_seconds())
+        if percent_95_segment_size < endtime - starttime < segment_size:
+            # Special case to handle the timing issues that sometimes delay results by one run interval
+            segment_size = endtime - starttime
+        return segment_size
+
 
     def init_rule(self, new_rule, new=True):
         ''' Copies some necessary non-config state from an exiting rule to a new rule. '''
