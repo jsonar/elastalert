@@ -168,29 +168,29 @@ class SonarFormattedMatchString:
         elif isinstance(self.rule['type'], FlatlineRule):
             if self.rule.get('query_key'):
                 text += "{} events in timeframe with a value {} for key {}. Minimum of {} expected.".format(
-                    self.match['num_hits'],
+                    self.match['count'],
                     self.match['key'],
                     self.rule['query_key'],
                     self.rule['threshold'])
             else:
-                text += "{} events in timeframe. Minimum of {} expected".format(self.match['num_hits'],
-                                                                                   self.rule['threshold'])
+                text += "{} events in timeframe. Minimum of {} expected".format(self.match['count'],
+                                                                                self.rule['threshold'])
         elif isinstance(self.rule['type'], ChangeRule):
             text += "The values of {0} for value {1} of query key {2} contain {3} entries that differ from the value " \
                     "of {0} when the rule last ran.".format(self.rule['compare_key'], self.match['watched_field_value'],
-                                                           self.rule['query_key'], self.match['doc_count'])
+                                                            self.rule['query_key'], self.match['doc_count'])
 
         elif isinstance(self.rule['type'], FrequencyRule):
             if self.rule.get('query_key'):
-                text += "{} events in timeframe where {} was {}. Less than {} events expected.".format(
-                    self.match['num_hits'],
+                text += "{} events in timeframe where {} was {}. At most {} events expected.".format(
+                    self.match['count'],
                     self.rule['query_key'],
                     self.match[self.rule['query_key']],
                     self.rule['num_events']
                     )
             else:
-                text += "{} events in timeframe. Maximum of {} expected.".format(self.match['num_hits'],
-                                                                                   self.rule['num_events'])
+                text += "{} events in timeframe. At most {} expected.".format(self.match['count'],
+                                                                              self.rule['num_events'])
         elif isinstance(self.rule['type'], SpikeRule):
             if self.rule.get('query_key'):
                 text += "{} hits in spike for value {} of query_key {}. {} hits in previous window.".format(
@@ -200,7 +200,7 @@ class SonarFormattedMatchString:
                     self.match['reference_count'])
             else:
                 text += "{} hits in spike. {} hits in previous window.".format(self.match['spike_count'],
-                                                                              self.match['reference_count'])
+                                                                               self.match['reference_count'])
         elif isinstance(self.rule['type'], CardinalityRule):
             if self.rule.get('query_key'):
                 text += "Cardinality of field {} for value {} of query key {} is {}. " \
