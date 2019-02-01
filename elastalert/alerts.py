@@ -182,15 +182,15 @@ class SonarFormattedMatchString:
 
         elif isinstance(self.rule['type'], FrequencyRule):
             if self.rule.get('query_key'):
-                text += "{} events in timeframe where {} was {}. At most {} events expected.".format(
+                text += "{} events in timeframe where {} was {}. Less than {} events expected.".format(
                     self.match['count'],
                     self.rule['query_key'],
                     self.match[self.rule['query_key']],
                     self.rule['num_events']
                     )
             else:
-                text += "{} events in timeframe. At most {} expected.".format(self.match['count'],
-                                                                              self.rule['num_events'])
+                text += "{} events in timeframe. Less than {} expected.".format(self.match['count'],
+                                                                                self.rule['num_events'])
         elif isinstance(self.rule['type'], SpikeRule):
             if self.rule.get('query_key'):
                 text += "{} hits in spike for value {} of query_key {}. {} hits in previous window.".format(
