@@ -94,7 +94,8 @@ class BlacklistRule(CompareRule):
     def extend_query(self, base_query):
         """nests the query inside another boolean query to only get documents on the blacklist"""
         inner_query = base_query['query']
-        query = {"query": {"bool": {"must": [inner_query, {"bool": {"should": self.item_clauses}}]}}}
+        query = {"query": {"bool": {"must": [inner_query, {"bool": {"should": self.item_clauses}}]}},
+                 'script_fields': base_query['script_fields']}
         return query
 
 
@@ -115,7 +116,8 @@ class WhitelistRule(CompareRule):
     def extend_query(self, base_query):
         """nests the query inside another boolean query to only get documents on the blacklist"""
         inner_query = base_query['query']
-        query = {"query": {"bool": {"must": [inner_query, {"bool": {"must_not": self.item_clauses}}]}}}
+        query = {"query": {"bool": {"must": [inner_query, {"bool": {"must_not": self.item_clauses}}]}},
+                 'script_fields': base_query['script_fields']}
         return query
 
 
@@ -145,7 +147,8 @@ class ChangeRule(CompareRule):
 
                 # Build the main query from the generated clauses
                 inner_query = query['query']
-                query = {"query": {"bool": {"must": [inner_query, {"bool": {"must_not": item_clauses}}]}}}
+                query = {"query": {"bool": {"must": [inner_query, {"bool": {"must_not": item_clauses}}]}},
+                         'script_fields': query['script_fields']}
 
                 return query
 
