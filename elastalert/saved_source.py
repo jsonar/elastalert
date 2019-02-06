@@ -26,7 +26,6 @@ class SavedSource:
         self.es = self._get_es_client(conf)
         self.raw_data = self.es.get(index='.kibana', doc_type='doc', id=self.id)
         self.scripted_fields = self.get_scripted_fields()
-        # self.scripted_fields = {}
 
     def get_scripted_fields(self):
         scripted_fields = {}
@@ -35,16 +34,12 @@ class SavedSource:
                 index='.kibana', doc_type='doc', id='index-pattern:{}'.format(self.get_index_id()))
 
             scripts = saved_object_index_pattern['_source']['index-pattern']['fields']
-            scripts = re.sub(r'\"{', '{', scripts)
-            scripts = re.sub(r'}\"', '}', scripts)
-            scripts = re.sub(r'\\\"', r'"', scripts)
-            scripts = re.sub(r'true', 'True', scripts)
-            scripts = re.sub(r'false', 'False', scripts)
-            scripts = ast.literal_eval(scripts)
+            scripts = json.loads(scripts)
+
             for item in scripts:
                 if item.get('scripted'):
-                    script = json.dumps(item['script'])
-                    scripted_fields[item['name']] = {"script": {"inline": script, "lang": "sonar"}}
+                    elastalert_logger.warning(item['script'])
+                    scripted_fields[item['name']] = {"script": {"inline": item['script'], "lang": "sonar"}}
 
         except Exception as e:
             elastalert_logger.exception('Failed to get scripted fields. Error {}'.format(e))
