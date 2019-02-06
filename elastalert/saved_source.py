@@ -38,7 +38,6 @@ class SavedSource:
 
             for item in scripts:
                 if item.get('scripted'):
-                    elastalert_logger.warning(item['script'])
                     scripted_fields[item['name']] = {"script": {"inline": item['script'], "lang": "sonar"}}
 
         except Exception as e:
