@@ -2,14 +2,15 @@ import os
 from elasticsearch import connection
 import yaml
 
+from constants import SONARK_CONF
+
 
 def getSonarConfig():
-    full_path = os.environ.get('SONARK_CONFIG_PATH')
-    if os.path.isfile(full_path):
-        return yaml.load(open(full_path))
+    if os.path.isfile(SONARK_CONF):
+        return yaml.load(open(SONARK_CONF))
     else:
         raise Exception(
-            "kibana.yml can't be found in the root directory of sonark. Ensure Sonark is installed properly.")
+            "kibana.yml can't be found in {}. Ensure Sonark is installed properly.".format(SONARK_CONF))
 
 
 class SonarConnectionUrllib3HttpConnection(connection.Urllib3HttpConnection):
