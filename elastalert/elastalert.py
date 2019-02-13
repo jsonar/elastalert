@@ -255,7 +255,7 @@ class ElastAlerter():
                 while tmp_start < starttime:
                     init_query = self.get_base_query(rule, tmp_start, tmp_end, sort, timestamp_field, to_ts_func,desc,
                                                      five)
-                    term_size = rule.get('terms_size', 50)
+                    term_size = rule.get('terms_size', 1000000)
                     init_query = self.get_aggregation_query(init_query, rule, rule['query_key'],
                                                             term_size, rule['timestamp_field'])
                     rule_inst.run_initialization(init_query, rule, index)
@@ -270,7 +270,7 @@ class ElastAlerter():
             ref_query = self.get_base_query(rule, ref_start, ref_end, sort, timestamp_field, to_ts_func,desc,
                                                      five)
             if rule.get('use_terms_query'):
-                size = rule.get('terms_size', 50)
+                size = rule.get('terms_size', 500)
                 ref_query = self.get_terms_query(ref_query, size, rule.get('query_key'), rule['five'])
 
             try:
@@ -611,7 +611,7 @@ class ElastAlerter():
             five=rule['five']
         )
         if size is None:
-            size = rule.get('terms_size', 50)
+            size = rule.get('terms_size', 500)
         query = self.get_terms_query(base_query, size, key, rule['five'])
 
         try:
@@ -659,7 +659,7 @@ class ElastAlerter():
         )
 
         if term_size is None:
-            term_size = rule.get('terms_size', 50)
+            term_size = rule.get('terms_size', 500)
         query = self.get_aggregation_query(base_query, rule, query_key, term_size, rule['timestamp_field'])
         try:
             if not rule['five']:
