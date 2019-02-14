@@ -18,11 +18,6 @@ def getSonarConfig():
 
 class SonarConnectionUrllib3HttpConnection(connection.Urllib3HttpConnection):
     def __init__(self, *args, **kwargs):
-        for arg in args:
-            logger.warning('ARG for lib3 {}'.format(arg))
-
-        for arg in kwargs:
-            logger.warning('KWARG for lib3 {}'.format(arg))
         super(SonarConnectionUrllib3HttpConnection, self).__init__(*args, **kwargs)
         self.headers.update({
             'sonarg-user': getSonarConfig()['elasticsearch.customHeaders']['sonarg-user']
