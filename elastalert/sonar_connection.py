@@ -4,6 +4,9 @@ import yaml
 
 from constants import SONARK_CONF
 
+import logging
+logger = logging.getLogger('elastalert')
+
 
 def getSonarConfig():
     if os.path.isfile(SONARK_CONF):
@@ -15,6 +18,11 @@ def getSonarConfig():
 
 class SonarConnectionUrllib3HttpConnection(connection.Urllib3HttpConnection):
     def __init__(self, *args, **kwargs):
+        for arg in args:
+            logger.warning('ARG for lib3 {}'.format(arg))
+
+        for arg in kwargs:
+            logger.warning('KWARG for lib3 {}'.format(arg))
         super(SonarConnectionUrllib3HttpConnection, self).__init__(*args, **kwargs)
         self.headers.update({
             'sonarg-user': getSonarConfig()['elasticsearch.customHeaders']['sonarg-user']
@@ -23,6 +31,7 @@ class SonarConnectionUrllib3HttpConnection(connection.Urllib3HttpConnection):
 
 class SonarConnectionRequestsHttpConnection(connection.RequestsHttpConnection):
     def __init__(self, *args, **kwargs):
+        kwargs['timeout'] = 600
         kwargs['headers'] = {
             'sonarg-user': getSonarConfig()['elasticsearch.customHeaders']['sonarg-user']
         }
