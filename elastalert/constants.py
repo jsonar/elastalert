@@ -1,3 +1,6 @@
+import os
+
+SONARK_CONF = os.environ.get('SONARK_CONFIG_PATH')
 DISPATCHER_CONF = '/opt/sonarfinder/sonarFinder/dispatcher.conf'
 SYSLOG_DEFAULT_HOST = '127.0.0.1'
 SYSLOG_DEFAULT_PORT = 514
