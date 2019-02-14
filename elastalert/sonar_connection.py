@@ -23,6 +23,7 @@ class SonarConnectionUrllib3HttpConnection(connection.Urllib3HttpConnection):
 
 class SonarConnectionRequestsHttpConnection(connection.RequestsHttpConnection):
     def __init__(self, *args, **kwargs):
+        kwargs['timeout'] = 600
         kwargs['headers'] = {
             'sonarg-user': getSonarConfig()['elasticsearch.customHeaders']['sonarg-user']
         }
