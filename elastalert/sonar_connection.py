@@ -4,9 +4,6 @@ import yaml
 
 from constants import SONARK_CONF
 
-import logging
-logger = logging.getLogger('elastalert')
-
 
 def getSonarConfig():
     if os.path.isfile(SONARK_CONF):
