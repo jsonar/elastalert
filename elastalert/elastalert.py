@@ -1220,7 +1220,7 @@ class ElastAlerter():
                 except:
                     # Sonar: This also occurs when saved_source_id is associated with a deleted saved source.
                     #   Either way don't stop when parsing a rule failed.
-                    print 'Error parsing {0}. Skipping loading rule changes.'.format(rule_file)
+                    self.handle_error('Error parsing {0}. Skipping loading rule changes.'.format(rule_file))
                     continue
                 elastalert_logger.info("Reloading configuration for rule %s" % (rule_file))
 
@@ -1255,7 +1255,7 @@ class ElastAlerter():
                 except:
                     # Sonar: This also occurs when saved_source_id is associated with a deleted saved source.
                     #   Either way don't stop when parsing a rule failed.
-                    print 'Error parsing {0}. Skipping rule.'.format(rule_file)
+                    self.handle_error('Error parsing {0}. Skipping rule.'.format(rule_file))
                     continue
                 if self.init_rule(new_rule):
                     elastalert_logger.info('Loaded new rule %s' % (rule_file))

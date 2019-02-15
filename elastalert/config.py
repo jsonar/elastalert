@@ -492,7 +492,7 @@ def load_rules(args):
         except:
             # Sonar: This also occurs when saved_source_id is associated with a deleted saved source.
             #   Either way don't stop when parsing a rule failed.
-            print 'Error parsing {0}. Skipping rule.'.format(rule_file)
+            logging.error("Error parsing {0}. Skipping rule.".format(rule_file))
             continue
 
         rules.append(rule)

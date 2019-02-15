@@ -184,7 +184,7 @@ class PercentageMatchRule(BaseAggregationRule):
         for filter_doc in copy.deepcopy(filters):
             if 'meta' in filter_doc:
                 del filter_doc['meta']
-            if '$state' in filter:
+            if '$state' in filter_doc:
                 del filter_doc['$state']
             match_bucket_filter_without_meta.append(filter_doc)
         return match_bucket_filter_without_meta
