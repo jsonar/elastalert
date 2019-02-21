@@ -20,6 +20,7 @@ import yaml
 from threadsafe_copy import ThreadsafeCopy as copy
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.cron import expressions
 from apscheduler.jobstores.base import JobLookupError
 from apscheduler.executors.pool import ThreadPoolExecutor
 from alerts import DebugAlerter
@@ -58,6 +59,9 @@ from util import ts_now
 from util import ts_to_dt
 from util import unix_to_dt
 from util import get_index as get_index_util
+
+# SonarK: Change WEEKDAYS to start from 'sun' instead of 'mon', like the ISO standard.
+expressions.WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
 
 
 class ElastAlerter():
@@ -1338,7 +1342,7 @@ class ElastAlerter():
 
             self.scheduler.add_job(
                 self.run_rule_job_runner,
-                CronTrigger.from_crontab(rule['cron']),
+                CronTrigger.from_crontab(rule['cron'], timezone=utc),
                 [rule],
                 id=rule_id)
 
@@ -1359,12 +1363,12 @@ class ElastAlerter():
                     args=[rule])
                 self.scheduler.reschedule_job(
                     rule_id,
-                    trigger=CronTrigger.from_crontab(rule['cron']))
+                    trigger=CronTrigger.from_crontab(rule['cron'], timezone=utc))
             except JobLookupError:
                 elastalert_logger.info("Scheduler: {} have no associated job. Creating one instead.".format(rule_id))
                 self.scheduler.add_job(
                     self.run_rule_job_runner,
-                    CronTrigger.from_crontab(rule['cron']),
+                    CronTrigger.from_crontab(rule['cron'], timezone=utc),
                     [rule],
                     id=rule_id)
 
