@@ -20,7 +20,7 @@ import yaml
 from threadsafe_copy import ThreadsafeCopy as copy
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.cron import expressions
+import apscheduler.triggers.cron.expressions
 from apscheduler.jobstores.base import JobLookupError
 from apscheduler.executors.pool import ThreadPoolExecutor
 from alerts import DebugAlerter
@@ -61,7 +61,7 @@ from util import unix_to_dt
 from util import get_index as get_index_util
 
 # SonarK: Change WEEKDAYS to start from 'sun' instead of 'mon', like the ISO standard.
-expressions.WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+apscheduler.triggers.cron.expressions.WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
 
 
 class ElastAlerter():
