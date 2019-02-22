@@ -1338,7 +1338,7 @@ class ElastAlerter():
 
             self.scheduler.add_job(
                 self.run_rule_job_runner,
-                CronTrigger.from_crontab(rule['cron'], timezone=utc),
+                CronTrigger.from_crontab(rule['cron']),
                 [rule],
                 id=rule_id)
 
@@ -1359,12 +1359,12 @@ class ElastAlerter():
                     args=[rule])
                 self.scheduler.reschedule_job(
                     rule_id,
-                    trigger=CronTrigger.from_crontab(rule['cron'], timezone=utc))
+                    trigger=CronTrigger.from_crontab(rule['cron']))
             except JobLookupError:
                 elastalert_logger.info("Scheduler: {} have no associated job. Creating one instead.".format(rule_id))
                 self.scheduler.add_job(
                     self.run_rule_job_runner,
-                    CronTrigger.from_crontab(rule['cron'], timezone=utc),
+                    CronTrigger.from_crontab(rule['cron']),
                     [rule],
                     id=rule_id)
 
