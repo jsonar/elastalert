@@ -149,6 +149,11 @@ class PercentageMatchRule(BaseAggregationRule):
         if 'max_percentage' not in self.rules and 'min_percentage' not in self.rules:
             raise EAException("PercentageMatchRule must have at least one of either min_percentage or max_percentage")
 
+        self.rules['realert'] = 0
+
+        if self.rules.get('buffer_time'):
+            self.rules['timeframe'] = self.rules['buffer_time']
+
         self.match_bucket_filter = self.rules['match_bucket_filter']
         self.rules['aggregation_query_element'] = self.generate_aggregation_query()
 

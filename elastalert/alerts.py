@@ -25,7 +25,7 @@ from util import elastalert_logger
 from util import get_sonar_connection
 from util import lookup_es_key
 
-from rule_type_definitions.aggregation_rules import MetricAggregationRule
+from rule_type_definitions.aggregation_rules import MetricAggregationRule, PercentageMatchRule
 from rule_type_definitions.cardinality_rule import CardinalityRule
 from rule_type_definitions.compare_rules import BlacklistRule, WhitelistRule, ChangeRule
 from rule_type_definitions.frequency_rules import FrequencyRule, FlatlineRule
@@ -225,6 +225,12 @@ class SonarFormattedMatchString:
                 self.rule['metric_agg_type'], self.rule['metric_agg_key'], self.rule['min_threshold'],
                 self.rule['max_threshold']
             )
+        elif isinstance(self.rule['type'], PercentageMatchRule):
+            text += ' {}% of events matched the filter. This is not between {}% and {}%'.format(
+                self.match['percentage'],
+                self.rule['min_percentage'],
+                self.rule['max_percentage']
+            )
 
         if self.rule.get('timeframe'):
             text += ' The Timeframe for this rule was: {}'.format(self.rule.get('timeframe'))
@@ -343,6 +349,12 @@ class SyslogFormattedMatch:
                              'metric_agg_key': self.rule['metric_agg_key'],
                              'min_threshold': self.rule['min_threshold'],
                              'max_threshold': self.rule['max_threshold']
+                             })
+
+        elif isinstance(self.rule['type'], PercentageMatchRule):
+            out_json.update({'Percentage Matching': self.match['percentage'],
+                             'min_percentage': self.rule['min_percentage'],
+                             'max_percentage': self.rule['max_percentage']
                              })
 
         self.alerts_collection.insert_one(out_json)
