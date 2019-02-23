@@ -506,3 +506,16 @@ def get_index(rule):
         return rule['index']
     else:
         raise EAException('Invalid rule, missing saved_source_id or index field.')
+
+def to_apscheduler_cron(cron):
+    cron_elements = cron.split()
+    day_of_week_str = cron_elements[-1]
+    try:
+        day_of_week = int(day_of_week_str)
+        day_of_week -= 1
+        day_of_week %= 7
+        cron_elements[-1] = str(day_of_week)
+        return ' '.join(cron_elements)
+    except:
+        # Day string is not a number. Don't bother touching this string.
+        return cron

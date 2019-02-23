@@ -20,7 +20,6 @@ import yaml
 from threadsafe_copy import ThreadsafeCopy as copy
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-import apscheduler.triggers.cron.expressions
 from apscheduler.jobstores.base import JobLookupError
 from apscheduler.executors.pool import ThreadPoolExecutor
 from alerts import DebugAlerter
@@ -59,9 +58,7 @@ from util import ts_now
 from util import ts_to_dt
 from util import unix_to_dt
 from util import get_index as get_index_util
-
-# SonarK: Change WEEKDAYS to start from 'sun' instead of 'mon', like the ISO standard.
-apscheduler.triggers.cron.expressions.WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+from util import to_apscheduler_cron
 
 
 class ElastAlerter():
@@ -1339,10 +1336,11 @@ class ElastAlerter():
         # Schedule new rules.
         for rule in new_rules:
             rule_id = rule['rule_file']
+            rule_cron = to_apscheduler_cron(rule['cron'])
 
             self.scheduler.add_job(
                 self.run_rule_job_runner,
-                CronTrigger.from_crontab(rule['cron'], timezone=utc),
+                CronTrigger.from_crontab(rule_cron, timezone=utc),
                 [rule],
                 id=rule_id)
 
@@ -1354,6 +1352,7 @@ class ElastAlerter():
         # Modifying jobs associated to modified rules.
         for rule in modified_rules:
             rule_id = rule['rule_file']
+            rule_cron = to_apscheduler_cron(rule['cron'])
             elastalert_logger.info("Scheduler: Updating job associated with rule {}".format(rule_id))
 
             try:
@@ -1363,12 +1362,12 @@ class ElastAlerter():
                     args=[rule])
                 self.scheduler.reschedule_job(
                     rule_id,
-                    trigger=CronTrigger.from_crontab(rule['cron'], timezone=utc))
+                    trigger=CronTrigger.from_crontab(rule_cron, timezone=utc))
             except JobLookupError:
                 elastalert_logger.info("Scheduler: {} have no associated job. Creating one instead.".format(rule_id))
                 self.scheduler.add_job(
                     self.run_rule_job_runner,
-                    CronTrigger.from_crontab(rule['cron'], timezone=utc),
+                    CronTrigger.from_crontab(rule_cron, timezone=utc),
                     [rule],
                     id=rule_id)
 
