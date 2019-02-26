@@ -144,7 +144,7 @@ class ChangeRule(CompareRule):
                                                  starttime, endtime, index)
             if resp:
                 item_clauses = self.generate_item_clauses(resp, rule)
-
+                elastalert_logger.warning('Itemm clauses are: {}'.format(item_clauses))
                 # Build the main query from the generated clauses
                 inner_query = query['query']
                 query = {"query": {"bool": {"must": [inner_query, {"bool": {"must_not": item_clauses}}]}},
@@ -223,14 +223,14 @@ class ChangeRule(CompareRule):
 
                 if not rule.get('ignore _null'):
                     clause = {"bool": {"must": [
-                        {"match": {rule['query_key']: query_key_value}},
-                        {"match": {compare_key: compare_key_value}}
+                        {"term": {rule['query_key']: query_key_value}},
+                        {"term": {compare_key: compare_key_value}}
                                                ]}}
                 else:  # Add the extra condition to ignore missing compare fields is ignore null is set
                     clause = {"bool": {"must": [
                         {"bool": {"should": [{"bool": {"must_not": [{"exists": {"field": compare_key}}]}},
-                                  {"match": {compare_key: compare_key_value}}]}},
-                        {"match": {rule['query_key']: query_key_value}}
+                                  {"term": {compare_key: compare_key_value}}]}},
+                        {"term": {rule['query_key']: query_key_value}}
                                                ]}}
                 item_clauses.append(clause)
 
