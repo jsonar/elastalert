@@ -144,7 +144,6 @@ class ChangeRule(CompareRule):
                                                  starttime, endtime, index)
             if resp:
                 item_clauses = self.generate_item_clauses(resp, rule)
-                elastalert_logger.warning('Itemm clauses are: {}'.format(item_clauses))
                 # Build the main query from the generated clauses
                 inner_query = query['query']
                 query = {"query": {"bool": {"must": [inner_query, {"bool": {"must_not": item_clauses}}]}},
