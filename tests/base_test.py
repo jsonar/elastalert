@@ -256,7 +256,7 @@ def test_match_with_module_from_pending(ea):
     mod.process = mock.Mock()
     ea.rules[0]['match_enhancements'] = [mod]
     ea.rules[0].pop('aggregation')
-    pending_alert = {'match_body': {'foo': 'bar'}, 'rule_name': ea.rules[0]['name'],
+    pending_alert = {'match_body': json.dumps({'foo': 'bar'}), 'rule_name': ea.rules[0]['name'],
                      'alert_time': START_TIMESTAMP, '@timestamp': START_TIMESTAMP}
     # First call, return the pending alert, second, no associated aggregated alerts
     ea.writeback_es.search.side_effect = [{'hits': {'hits': [{'_id': 'ABCD', '_source': pending_alert}]}},
@@ -265,7 +265,7 @@ def test_match_with_module_from_pending(ea):
     assert mod.process.call_count == 0
 
     # If aggregation is set, enhancement IS called
-    pending_alert = {'match_body': {'foo': 'bar'}, 'rule_name': ea.rules[0]['name'],
+    pending_alert = {'match_body': json.dumps({'foo': 'bar'}), 'rule_name': ea.rules[0]['name'],
                      'alert_time': START_TIMESTAMP, '@timestamp': START_TIMESTAMP}
     ea.writeback_es.search.side_effect = [{'hits': {'hits': [{'_id': 'ABCD', '_source': pending_alert}]}},
                                           {'hits': {'hits': []}}]
@@ -329,16 +329,16 @@ def test_agg_matchtime(ea):
     call1 = ea.writeback_es.index.call_args_list[0][1]['body']
     call2 = ea.writeback_es.index.call_args_list[1][1]['body']
     call3 = ea.writeback_es.index.call_args_list[2][1]['body']
-    assert call1['match_body']['@timestamp'] == '2014-09-26T12:34:45'
+    assert json.loads(call1['match_body'])['@timestamp'] == '2014-09-26T12:34:45'
     assert not call1['alert_sent']
     assert 'aggregate_id' not in call1
     assert call1['alert_time'] == alerttime1
 
-    assert call2['match_body']['@timestamp'] == '2014-09-26T12:40:45'
+    assert json.loads(call2['match_body'])['@timestamp'] == '2014-09-26T12:40:45'
     assert not call2['alert_sent']
     assert call2['aggregate_id'] == 'ABCD'
 
-    assert call3['match_body']['@timestamp'] == '2014-09-26T12:47:45'
+    assert json.loads(call3['match_body'])['@timestamp'] == '2014-09-26T12:47:45'
     assert not call3['alert_sent']
     assert 'aggregate_id' not in call3
 
@@ -384,16 +384,16 @@ def test_agg_not_matchtime(ea):
     call1 = ea.writeback_es.index.call_args_list[0][1]['body']
     call2 = ea.writeback_es.index.call_args_list[1][1]['body']
     call3 = ea.writeback_es.index.call_args_list[2][1]['body']
-    assert call1['match_body']['@timestamp'] == '2014-09-26T12:34:45'
+    assert json.loads(call1['match_body'])['@timestamp'] == '2014-09-26T12:34:45'
     assert not call1['alert_sent']
     assert 'aggregate_id' not in call1
     assert call1['alert_time'] == dt_to_ts(match_time + datetime.timedelta(minutes=10))
 
-    assert call2['match_body']['@timestamp'] == '2014-09-26T12:40:45'
+    assert json.loads(call2['match_body'])['@timestamp'] == '2014-09-26T12:40:45'
     assert not call2['alert_sent']
     assert call2['aggregate_id'] == 'ABCD'
 
-    assert call3['match_body']['@timestamp'] == '2014-09-26T12:47:45'
+    assert json.loads(call3['match_body'])['@timestamp'] == '2014-09-26T12:47:45'
     assert not call3['alert_sent']
     assert call3['aggregate_id'] == 'ABCD'
 
@@ -419,16 +419,16 @@ def test_agg_cron(ea):
     call2 = ea.writeback_es.index.call_args_list[1][1]['body']
     call3 = ea.writeback_es.index.call_args_list[2][1]['body']
 
-    assert call1['match_body']['@timestamp'] == '2014-09-26T12:34:45'
+    assert json.loads(call1['match_body'])['@timestamp'] == '2014-09-26T12:34:45'
     assert not call1['alert_sent']
     assert 'aggregate_id' not in call1
     assert call1['alert_time'] == alerttime1
 
-    assert call2['match_body']['@timestamp'] == '2014-09-26T12:40:45'
+    assert json.loads(call2['match_body'])['@timestamp'] == '2014-09-26T12:40:45'
     assert not call2['alert_sent']
     assert call2['aggregate_id'] == 'ABCD'
 
-    assert call3['match_body']['@timestamp'] == '2014-09-26T12:47:45'
+    assert json.loads(call3['match_body'])['@timestamp'] == '2014-09-26T12:47:45'
     assert call3['alert_time'] == alerttime2
     assert not call3['alert_sent']
     assert 'aggregate_id' not in call3
@@ -485,21 +485,21 @@ def test_agg_with_aggregation_key(ea):
     call1 = ea.writeback_es.index.call_args_list[0][1]['body']
     call2 = ea.writeback_es.index.call_args_list[1][1]['body']
     call3 = ea.writeback_es.index.call_args_list[2][1]['body']
-    assert call1['match_body']['key'] == 'Key Value 1'
+    assert json.loads(call1['match_body'])['key'] == 'Key Value 1'
     assert not call1['alert_sent']
     assert 'aggregate_id' not in call1
     assert 'aggregation_key' in call1
     assert call1['aggregation_key'] == 'Key Value 1'
     assert call1['alert_time'] == dt_to_ts(match_time + datetime.timedelta(minutes=10))
 
-    assert call2['match_body']['key'] == 'Key Value 2'
+    assert json.loads(call2['match_body'])['key'] == 'Key Value 2'
     assert not call2['alert_sent']
     assert 'aggregate_id' not in call2
     assert 'aggregation_key' in call2
     assert call2['aggregation_key'] == 'Key Value 2'
     assert call2['alert_time'] == dt_to_ts(match_time + datetime.timedelta(minutes=10))
 
-    assert call3['match_body']['key'] == 'Key Value 1'
+    assert json.loads(call3['match_body'])['key'] == 'Key Value 1'
     assert not call3['alert_sent']
     # Call3 should have it's aggregate_id set to call1's _id
     # It should also have the same alert_time as call1
