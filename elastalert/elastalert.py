@@ -1656,7 +1656,7 @@ class ElastAlerter():
 
     def get_alert_body(self, match, rule, alert_sent, alert_time, alert_exception=None):
         body = {
-            'match_body': match,
+            'match_body': json.dumps(match),
             'rule_name': rule['name'],
             'alert_info': rule['alert'][0].get_info() if not self.debug else {},
             'alert_sent': alert_sent,
@@ -1739,7 +1739,7 @@ class ElastAlerter():
             try:
                 rule_name = alert.pop('rule_name')
                 alert_time = alert.pop('alert_time')
-                match_body = alert.pop('match_body')
+                match_body = json.loads(alert.pop('match_body'))
             except KeyError:
                 # Malformed alert, drop it
                 continue
@@ -1760,7 +1760,7 @@ class ElastAlerter():
             if ts_now() > ts_to_dt(alert_time):
                 aggregated_matches = self.get_aggregated_matches(_id)
                 if aggregated_matches:
-                    matches = [match_body] + [agg_match['match_body'] for agg_match in aggregated_matches]
+                    matches = [match_body] + [json.loads(agg_match['match_body']) for agg_match in aggregated_matches]
                     self.alert(matches, rule, alert_time=alert_time)
                 else:
                     # If this rule isn't using aggregation, this must be a retry of a failed alert
