@@ -498,7 +498,7 @@ class ElastAlerter():
                     ignore_unavailable=True,
                     **extra_args
                 )
-                self.total_hits = int(res['hits']['total'])
+                self.total_hits = int(res['hits']['total']['value'])
 
             if len(res.get('_shards', {}).get('failures', [])) > 0:
                 errs = [e['reason']['reason'] for e in res['_shards']['failures'] if 'Failed to parse' in e['reason']['reason']]
@@ -684,7 +684,7 @@ class ElastAlerter():
             payload = res['aggregations']['filtered']
         else:
             payload = res['aggregations']
-        self.num_hits += res['hits']['total']
+        self.num_hits += res['hits']['total']['value']
         return {endtime: payload}
 
     def remove_duplicate_events(self, data, rule):
