@@ -81,7 +81,7 @@ class NewTermsRule(RuleType):
 
     def run_initialization(self, query, rule, index):
 
-            aggregation_data = self.es.search(index=index, doc_type=rule.get('doc_type'), size=0,
+            aggregation_data = self.es.search(index=index, size=0,
                                                           body=query, ignore_unavailable=True)
             self.check_matches(datetime.datetime.utcnow(), aggregation_data['aggregations'], add_match=False)
 

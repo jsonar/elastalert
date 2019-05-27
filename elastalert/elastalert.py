@@ -558,7 +558,7 @@ class ElastAlerter():
         )
 
         try:
-            res = self.current_es.count(index=index, doc_type=rule['doc_type'], body=query, ignore_unavailable=True)
+            res = self.current_es.count(index=index, body=query, ignore_unavailable=True)
         except ElasticsearchException as e:
             # Elasticsearch sometimes gives us GIGANTIC error messages
             # (so big that they will fill the entire terminal buffer)
@@ -619,13 +619,13 @@ class ElastAlerter():
             if not rule['five']:
                 res = self.current_es.search(
                     index=index,
-                    doc_type=rule['doc_type'],
+                    #doc_type=rule['doc_type'],
                     body=query,
                     search_type='count',
                     ignore_unavailable=True
                 )
             else:
-                res = self.current_es.search(index=index, doc_type=rule['doc_type'], body=query, size=0, ignore_unavailable=True)
+                res = self.current_es.search(index=index, body=query, size=0, ignore_unavailable=True)
         except ElasticsearchException as e:
             # Elasticsearch sometimes gives us GIGANTIC error messages
             # (so big that they will fill the entire terminal buffer)
@@ -666,13 +666,13 @@ class ElastAlerter():
             if not rule['five']:
                 res = self.current_es.search(
                     index=index,
-                    doc_type=rule.get('doc_type'),
+                    #doc_type=rule.get('doc_type'),
                     body=query,
                     search_type='count',
                     ignore_unavailable=True
                 )
             else:
-                res = self.current_es.search(index=index, doc_type=rule.get('doc_type'), body=query, size=0, ignore_unavailable=True)
+                res = self.current_es.search(index=index, body=query, size=0, ignore_unavailable=True)
         except ElasticsearchException as e:
             if len(str(e)) > 1024:
                 e = str(e)[:1024] + '... (%d characters removed)' % (len(str(e)) - 1024)
@@ -778,10 +778,10 @@ class ElastAlerter():
         try:
             if self.is_atleastsix():
                 index = self.get_six_index('elastalert_status')
-                res = self.writeback_es.search(index=index, doc_type='elastalert_status',
+                res = self.writeback_es.search(index=index,
                                                size=1, body=query, _source_include=['endtime', 'rule_name'])
             else:
-                res = self.writeback_es.search(index=self.writeback_index, doc_type='elastalert_status',
+                res = self.writeback_es.search(index=self.writeback_index,
                                                size=1, body=query, _source_include=['endtime', 'rule_name'])
             if res['hits']['hits']:
                 endtime = ts_to_dt(res['hits']['hits'][0]['_source']['endtime'])
@@ -1506,7 +1506,7 @@ class ElastAlerter():
             raise EAException("use_kibana_dashboard undefined")
         query = {'query': {'term': {'_id': db_name}}}
         try:
-            res = es.search(index='kibana-int', doc_type='dashboard', body=query, _source_include=['dashboard'])
+            res = es.search(index='kibana-int', body=query, _source_include=['dashboard'])
         except ElasticsearchException as e:
             raise EAException("Error querying for dashboard: %s" % (e)), None, sys.exc_info()[2]
 
@@ -1722,7 +1722,6 @@ class ElastAlerter():
         query.update(sort)
         try:
             res = self.writeback_es.search(index=self.writeback_index,
-                                           doc_type='elastalert',
                                            body=query,
                                            size=1000)
             if res['hits']['hits']:
@@ -1810,13 +1809,11 @@ class ElastAlerter():
         matches = []
         try:
             res = self.writeback_es.search(index=self.writeback_index,
-                                           doc_type='elastalert',
                                            body=query,
                                            size=self.max_aggregation)
             for match in res['hits']['hits']:
                 matches.append(match['_source'])
                 self.writeback_es.delete(index=self.writeback_index,
-                                         doc_type='elastalert',
                                          id=match['_id'])
         except (KeyError, ElasticsearchException) as e:
             self.handle_error("Error fetching aggregated matches: %s" % (e), {'id': _id})
@@ -1834,7 +1831,6 @@ class ElastAlerter():
         query['sort'] = {'alert_time': {'order': 'desc'}}
         try:
             res = self.writeback_es.search(index=self.writeback_index,
-                                           doc_type='elastalert',
                                            body=query,
                                            size=1)
             if len(res['hits']['hits']) == 0:
@@ -1977,10 +1973,10 @@ class ElastAlerter():
         try:
             if(self.is_atleastsix()):
                 index = self.get_six_index('silence')
-                res = self.writeback_es.search(index=index, doc_type='silence',
+                res = self.writeback_es.search(index=index,
                                                size=1, body=query, _source_include=['until', 'exponent'])
             else:
-                res = self.writeback_es.search(index=self.writeback_index, doc_type='silence',
+                res = self.writeback_es.search(index=self.writeback_index,
                                                size=1, body=query, _source_include=['until', 'exponent'])
         except ElasticsearchException as e:
             self.handle_error("Error while querying for alert silence status: %s" % (e), {'rule': rule_name})

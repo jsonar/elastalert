@@ -48,10 +48,10 @@ class SpikeRule(RuleType):
 
     def query_reference_window(self, query, rule, index):
         if self.rules.get('use_terms_query'):
-            self.ref_data = self.es.search(index=index, doc_type=rule['doc_type'], body=query, size=0,
+            self.ref_data = self.es.search(index=index, body=query, size=0,
                                            ignore_unavailable=True)
             self.ref_data = self.ref_data['aggregations']['counts']['buckets']
             self.ref_data = {item['key']: item['doc_count'] for item in self.ref_data}
         else:
-            self.ref_data = self.es.count(index=index, doc_type=rule['doc_type'], body=query, ignore_unavailable=True)
+            self.ref_data = self.es.count(index=index, body=query, ignore_unavailable=True)
             self.ref_data = {None: self.ref_data['count']}
