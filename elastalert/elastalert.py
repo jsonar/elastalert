@@ -619,7 +619,6 @@ class ElastAlerter():
             if not rule['five']:
                 res = self.current_es.search(
                     index=index,
-                    #doc_type=rule['doc_type'],
                     body=query,
                     search_type='count',
                     ignore_unavailable=True
@@ -666,7 +665,6 @@ class ElastAlerter():
             if not rule['five']:
                 res = self.current_es.search(
                     index=index,
-                    #doc_type=rule.get('doc_type'),
                     body=query,
                     search_type='count',
                     ignore_unavailable=True
