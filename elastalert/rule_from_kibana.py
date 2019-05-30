@@ -23,7 +23,7 @@ def main():
         port=es_port,
         send_get_body_as=send_get_body_as)
     query = {'query': {'term': {'_id': db_name}}}
-    res = es.search(index='kibana-int', doc_type='dashboard', body=query, _source_include=['dashboard'])
+    res = es.search(index='kibana-int', body=query, _source_include=['dashboard'])
     if not res['hits']['hits']:
         print("No dashboard %s found" % (db_name))
         exit()

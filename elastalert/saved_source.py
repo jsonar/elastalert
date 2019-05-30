@@ -73,7 +73,7 @@ class SavedSource:
         """
         :return: elasticsearch index id associated with the Saved Search.
         """
-        return self._get_search_source()['index']
+        return self.raw_data['_source']['references'][0]['id']
 
     def _get_filter(self):
         """

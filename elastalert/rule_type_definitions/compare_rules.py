@@ -158,7 +158,7 @@ class ChangeRule(CompareRule):
             query_key_terms_query = {'query': {'bool': {'must': [
                 {'range': {timestamp_field: {'gt': starttime, 'lte': endtime}}}]}},
                 "aggs": {"key_values": {"terms": {"field": rule['query_key']}}}}
-            query_key_values = current_es.search(index=index, doc_type=rule.get('doc_type'), size=0,
+            query_key_values = current_es.search(index=index, size=0,
                                                           body=query_key_terms_query, ignore_unavailable=True)
             return query_key_values
 
