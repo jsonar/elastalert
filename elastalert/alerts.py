@@ -682,7 +682,6 @@ class SonarDispatcherAlerter(Alerter):
             for match in matches:
                 self.es_client.index(
                     'lmrm__scheduler-lmrm__dispatched_jobs',
-                    '_doc',
                     {
                         'name': 'sonark_alerts',
                         'emails': self.rule['email'],
@@ -700,7 +699,6 @@ class SonarDispatcherAlerter(Alerter):
 
             self.es_client.index(
                 'lmrm__scheduler-lmrm__dispatched_jobs',
-                '_doc',
                 {
                     'name': 'sonark_alerts',
                     'emails': self.rule['email'],

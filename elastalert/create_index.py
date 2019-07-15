@@ -14,6 +14,7 @@ from sonar_connection import SonarConnectionRequestsHttpConnection
 from elasticsearch.client import Elasticsearch
 from elasticsearch.client import IndicesClient
 from elasticsearch.exceptions import NotFoundError
+from elasticsearch.exceptions import ConflictError
 from envparse import Env
 
 
@@ -245,7 +246,11 @@ def main():
             except NotFoundError:
                 # Why does this ever occur?? It shouldn't. But it does.
                 pass
-        es_index.create(index_name)
+        try:
+            es_index.create(index_name)
+        except ConflictError as e:
+            # In v7.0.0 of elasticsearch, this is now thrown if index already exist.
+            pass
 
     # To avoid a race condition. TODO: replace this with a real check
     time.sleep(2)
