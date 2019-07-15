@@ -1695,8 +1695,7 @@ class ElastAlerter():
             writeback_body['@timestamp'] = dt_to_ts(ts_now())
 
         try:
-            res = self.writeback_es.index(index=writeback_index,
-                                          doc_type=doc_type, body=body)
+            res = self.writeback_es.index(index=writeback_index, body=body)
             return res
         except ElasticsearchException as e:
             logging.exception("Error writing alert info to Elasticsearch: %s" % (e))
