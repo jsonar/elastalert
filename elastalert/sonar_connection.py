@@ -7,7 +7,7 @@ from constants import SONARK_CONF
 
 def getSonarConfig():
     if os.path.isfile(SONARK_CONF):
-        return yaml.load(open(SONARK_CONF))
+        return yaml.load(open(SONARK_CONF), Loader=yaml.SafeLoader)
     else:
         raise Exception(
             "kibana.yml can't be found in {}. Ensure Sonark is installed properly.".format(SONARK_CONF))
