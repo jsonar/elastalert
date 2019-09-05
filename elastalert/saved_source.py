@@ -38,7 +38,7 @@ class SavedSource:
 
             for item in scripts:
                 if item.get('scripted'):
-                    scripted_fields[item['name']] = {"script": {"inline": item['script'], "lang": "sonar"}}
+                    scripted_fields[item['name']] = {"script": {"source": item['script'], "lang": "sonar"}}
 
         except Exception as e:
             elastalert_logger.exception('Failed to get scripted fields. Error {}'.format(e))

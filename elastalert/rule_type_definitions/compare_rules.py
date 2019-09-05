@@ -191,7 +191,7 @@ class ChangeRule(CompareRule):
                                                     time_clause]}},
                         'size': 1,
                         'script_fields': {
-                            "compare_key_field": {"script": {"inline": "'{}'".format(field), "lang": "sonar"}}
+                            "compare_key_field": {"script": {"source": "'{}'".format(field), "lang": "sonar"}}
                         }
                     }
                     request.extend([req_head, req_body])
