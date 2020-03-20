@@ -15,50 +15,50 @@ from smtplib import SMTPException
 from socket import error
 from pytz import utc
 
-import kibana
+from . import kibana
 import yaml
-from threadsafe_copy import ThreadsafeCopy as copy
+from .threadsafe_copy import ThreadsafeCopy as copy
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.jobstores.base import JobLookupError
 from apscheduler.executors.pool import ThreadPoolExecutor
-from alerts import DebugAlerter
-from config import get_rule_hashes
-from config import load_configuration
-from config import load_rules
+from .alerts import DebugAlerter
+from .config import get_rule_hashes
+from .config import load_configuration
+from .config import load_rules
 from croniter import croniter
 from elasticsearch.exceptions import ConnectionError
 from elasticsearch.exceptions import ElasticsearchException
 from elasticsearch.exceptions import TransportError
-from enhancements import DropMatchException
-from rule_type_definitions.frequency_rules import FlatlineRule
-from rule_type_definitions.compare_rules import BlacklistRule, WhitelistRule, ChangeRule
-from rule_type_definitions.new_terms_rule import NewTermsRule
-from rule_type_definitions.cardinality_rule import CardinalityRule
-from rule_type_definitions.spike_rule import SpikeRule
-from saved_source_factory import SavedSourceFactory
-from util import add_raw_postfix
-from util import cronite_datetime_to_timestamp
-from util import dt_to_ts
-from util import dt_to_unix
-from util import EAException
-from util import elastalert_logger
-from util import elasticsearch_client
-from util import format_index
-from util import lookup_es_key
-from util import parse_deadline
-from util import parse_duration
-from util import pretty_ts
-from util import replace_dots_in_field_names
-from util import seconds
-from util import set_es_key
-from util import total_seconds
-from util import ts_add
-from util import ts_now
-from util import ts_to_dt
-from util import unix_to_dt
-from util import get_index as get_index_util
-from util import to_apscheduler_cron
+from .enhancements import DropMatchException
+from .rule_type_definitions.frequency_rules import FlatlineRule
+from .rule_type_definitions.compare_rules import BlacklistRule, WhitelistRule, ChangeRule
+from .rule_type_definitions.new_terms_rule import NewTermsRule
+from .rule_type_definitions.cardinality_rule import CardinalityRule
+from .rule_type_definitions.spike_rule import SpikeRule
+from .saved_source_factory import SavedSourceFactory
+from .util import add_raw_postfix
+from .util import cronite_datetime_to_timestamp
+from .util import dt_to_ts
+from .util import dt_to_unix
+from .util import EAException
+from .util import elastalert_logger
+from .util import elasticsearch_client
+from .util import format_index
+from .util import lookup_es_key
+from .util import parse_deadline
+from .util import parse_duration
+from .util import pretty_ts
+from .util import replace_dots_in_field_names
+from .util import seconds
+from .util import set_es_key
+from .util import total_seconds
+from .util import ts_add
+from .util import ts_now
+from .util import ts_to_dt
+from .util import unix_to_dt
+from .util import get_index as get_index_util
+from .util import to_apscheduler_cron
 
 
 class ElastAlerter():
@@ -179,7 +179,7 @@ class ElastAlerter():
         for rule in self.rules:
             if not self.init_rule(rule):
                 remove.append(rule)
-        map(self.rules.remove, remove)
+        list(map(self.rules.remove, remove))
 
         if self.args.silence:
             self.silence()
@@ -428,7 +428,7 @@ class ElastAlerter():
         for hit in hits:
             # Merge fields and _source
             hit.setdefault('_source', {})
-            for key, value in hit.get('fields', {}).items():
+            for key, value in list(hit.get('fields', {}).items()):
                 # Fields are returned as lists, assume any with length 1 are not arrays in _source
                 # Except sometimes they aren't lists. This is dependent on ES version
                 hit['_source'].setdefault(key, value[0] if type(value) is list and len(value) == 1 else value)
@@ -450,11 +450,11 @@ class ElastAlerter():
 
             if rule.get('compound_query_key'):
                 values = [lookup_es_key(hit['_source'], key) for key in rule['compound_query_key']]
-                hit['_source'][rule['query_key']] = ', '.join([unicode(value) for value in values])
+                hit['_source'][rule['query_key']] = ', '.join([str(value) for value in values])
 
             if rule.get('compound_aggregation_key'):
                 values = [lookup_es_key(hit['_source'], key) for key in rule['compound_aggregation_key']]
-                hit['_source'][rule['aggregation_key']] = ', '.join([unicode(value) for value in values])
+                hit['_source'][rule['aggregation_key']] = ', '.join([str(value) for value in values])
 
             processed_hits.append(hit['_source'])
 
@@ -704,10 +704,10 @@ class ElastAlerter():
         buffer_time = rule.get('buffer_time', self.buffer_time)
         if rule.get('query_delay'):
             buffer_time += rule['query_delay']
-        for _id, timestamp in rule['processed_hits'].iteritems():
+        for _id, timestamp in rule['processed_hits'].items():
             if now - timestamp > buffer_time:
                 remove.append(_id)
-        map(rule['processed_hits'].pop, remove)
+        list(map(rule['processed_hits'].pop, remove))
 
     def run_query(self, rule, start=None, end=None, scroll=False):
         """ Query for the rule and pass all of the results to the RuleType instance.
@@ -879,7 +879,7 @@ class ElastAlerter():
         # get the value for the match's query_key (or none) to form the key used for the silence_cache.
         # Flatline ruletype sets "key" instead of the actual query_key
         if isinstance(rule['type'], FlatlineRule) and 'key' in match:
-            return unicode(match['key'])
+            return str(match['key'])
         return self.get_named_key_value(rule, match, 'query_key')
 
     def get_aggregation_key_value(self, rule, match):
@@ -894,7 +894,7 @@ class ElastAlerter():
                 if key_value is not None:
                     # Only do the unicode conversion if we actually found something)
                     # otherwise we might transform None --> 'None'
-                    key_value = unicode(key_value)
+                    key_value = str(key_value)
             except KeyError:
                 # Some matches may not have the specified key
                 # use a special token for these
@@ -1188,7 +1188,7 @@ class ElastAlerter():
         new_rule_hashes = get_rule_hashes(self.conf, self.args.rule)
 
         # Check each current rule for changes
-        for rule_file, hash_value in self.rule_hashes.iteritems():
+        for rule_file, hash_value in self.rule_hashes.items():
             if rule_file not in new_rule_hashes:
                 # Rule file was deleted
                 elastalert_logger.info('Rule file %s not found, stopping rule execution' % (rule_file))
@@ -1209,7 +1209,7 @@ class ElastAlerter():
                     # Want to send email to address specified in the rule. Try and load the YAML to find it.
                     with open(rule_file) as f:
                         try:
-                            rule_yaml = yaml.load(f)
+                            rule_yaml = yaml.load(f, Loader=yaml.UnsafeLoader)
                         except yaml.scanner.ScannerError:
                             self.send_notification_email(exception=e)
                             continue
@@ -1251,10 +1251,10 @@ class ElastAlerter():
                     self.handle_error('Could not load rule %s: %s' % (rule_file, e))
                     self.send_notification_email(exception=e, rule_file=rule_file)
                     continue
-                except:
+                except e:
                     # Sonar: This also occurs when saved_source_id is associated with a deleted saved source.
                     #   Either way don't stop when parsing a rule failed.
-                    self.handle_error('Error parsing {0}. Skipping rule.'.format(rule_file))
+                    self.handle_error('Error parsing {0}. Skipping rule. {1}'.format(rule_file, e))
                     continue
                 if self.init_rule(new_rule):
                     elastalert_logger.info('Loaded new rule %s' % (rule_file))
@@ -1506,7 +1506,7 @@ class ElastAlerter():
         try:
             res = es.search(index='kibana-int', body=query, _source_include=['dashboard'])
         except ElasticsearchException as e:
-            raise EAException("Error querying for dashboard: %s" % (e)), None, sys.exc_info()[2]
+            raise EAException("Error querying for dashboard: %s" % (e)).with_traceback(sys.exc_info()[2])
 
         if res['hits']['hits']:
             return json.loads(res['hits']['hits'][0]['_source']['dashboard'])
@@ -1682,7 +1682,7 @@ class ElastAlerter():
         else:
             writeback_body = body
 
-        for key in writeback_body.keys():
+        for key in list(writeback_body.keys()):
             # Convert any datetime objects to timestamps
             if isinstance(writeback_body[key], datetime.datetime):
                 writeback_body[key] = dt_to_ts(writeback_body[key])
@@ -1766,7 +1766,7 @@ class ElastAlerter():
                     self.alert([match_body], rule, alert_time=alert_time, retried=retried)
 
                 if rule['current_aggregate_id']:
-                    for qk, agg_id in rule['current_aggregate_id'].iteritems():
+                    for qk, agg_id in rule['current_aggregate_id'].items():
                         if agg_id == _id:
                             rule['current_aggregate_id'].pop(qk)
                             break
@@ -1782,7 +1782,7 @@ class ElastAlerter():
         # Send in memory aggregated alerts
         for rule in self.rules:
             if rule['agg_matches']:
-                for aggregation_key_value, aggregate_alert_time in rule['aggregate_alert_time'].iteritems():
+                for aggregation_key_value, aggregate_alert_time in rule['aggregate_alert_time'].items():
                     if ts_now() > aggregate_alert_time:
                         alertable_matches = [
                             agg_match
@@ -1982,7 +1982,7 @@ class ElastAlerter():
         if res['hits']['hits']:
             until_ts = res['hits']['hits'][0]['_source']['until']
             exponent = res['hits']['hits'][0]['_source'].get('exponent', 0)
-            if rule_name not in self.silence_cache.keys():
+            if rule_name not in list(self.silence_cache.keys()):
                 self.silence_cache[rule_name] = (ts_to_dt(until_ts), exponent)
             else:
                 self.silence_cache[rule_name] = (ts_to_dt(until_ts), self.silence_cache[rule_name][1])
@@ -2030,13 +2030,13 @@ class ElastAlerter():
             tb = traceback.format_exc()
             email_body += tb
 
-        if isinstance(self.notify_email, basestring):
+        if isinstance(self.notify_email, str):
             self.notify_email = [self.notify_email]
         email = MIMEText(email_body)
         email['Subject'] = subject if subject else 'ElastAlert notification'
         recipients = self.notify_email
         if rule and rule.get('notify_email'):
-            if isinstance(rule['notify_email'], basestring):
+            if isinstance(rule['notify_email'], str):
                 rule['notify_email'] = [rule['notify_email']]
             recipients = recipients + rule['notify_email']
         recipients = list(set(recipients))
@@ -2063,14 +2063,14 @@ class ElastAlerter():
             if hits_terms is None:
                 top_events_count = {}
             else:
-                buckets = hits_terms.values()[0]
+                buckets = list(hits_terms.values())[0]
 
                 # get_hits_terms adds to num_hits, but we don't want to count these
                 self.num_hits -= len(buckets)
                 terms = {}
                 for bucket in buckets:
                     terms[bucket['key']] = bucket['doc_count']
-                counts = terms.items()
+                counts = list(terms.items())
                 counts.sort(key=lambda x: x[1], reverse=True)
                 top_events_count = dict(counts[:number])
 

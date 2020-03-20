@@ -2,11 +2,11 @@
 import json
 import logging
 import requests
-from alerts import Alerter
-from alerts import BasicMatchString
-from util import EAException
-from util import elastalert_logger
-from util import lookup_es_key
+from .alerts import Alerter
+from .alerts import BasicMatchString
+from .util import EAException
+from .util import elastalert_logger
+from .util import lookup_es_key
 
 
 class OpsGenieAlerter(Alerter):
@@ -35,7 +35,7 @@ class OpsGenieAlerter(Alerter):
     def alert(self, matches):
         body = ''
         for match in matches:
-            body += unicode(BasicMatchString(self.rule, match))
+            body += str(BasicMatchString(self.rule, match))
             # Separate text of aggregated alerts with dashes
             if len(matches) > 1:
                 body += '\n----------------------------------------\n'
@@ -105,7 +105,7 @@ class OpsGenieAlerter(Alerter):
         return self.create_default_title(matches)
 
     def create_custom_title(self, matches):
-        opsgenie_subject = unicode(self.rule['opsgenie_subject'])
+        opsgenie_subject = str(self.rule['opsgenie_subject'])
 
         if self.opsgenie_subject_args:
             opsgenie_subject_values = [lookup_es_key(matches[0], arg) for arg in self.opsgenie_subject_args]

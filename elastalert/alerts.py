@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-import ConfigParser
+import configparser
 import copy
 import json
 import os
 import socket
-import urllib
-import urlparse
+import urllib.request, urllib.parse, urllib.error
+import urllib.parse
 from email.mime.text import MIMEText
 from email.utils import formatdate
 from smtplib import SMTP
@@ -17,20 +17,20 @@ import pymongo
 from staticconf.loader import yaml_loader
 from texttable import Texttable
 
-from constants import DISPATCHER_CONF, SYSLOG_DEFAULT_HOST, SYSLOG_DEFAULT_PORT, SYSLOG_DEFAULT_PROTOCOL
+from .constants import DISPATCHER_CONF, SYSLOG_DEFAULT_HOST, SYSLOG_DEFAULT_PORT, SYSLOG_DEFAULT_PROTOCOL
 
-from util import EAException
-from util import elasticsearch_client
-from util import elastalert_logger
-from util import get_sonar_connection
-from util import lookup_es_key
+from .util import EAException
+from .util import elasticsearch_client
+from .util import elastalert_logger
+from .util import get_sonar_connection
+from .util import lookup_es_key
 
-from rule_type_definitions.aggregation_rules import MetricAggregationRule, PercentageMatchRule
-from rule_type_definitions.cardinality_rule import CardinalityRule
-from rule_type_definitions.compare_rules import BlacklistRule, WhitelistRule, ChangeRule
-from rule_type_definitions.frequency_rules import FrequencyRule, FlatlineRule
-from rule_type_definitions.new_terms_rule import NewTermsRule
-from rule_type_definitions.spike_rule import SpikeRule
+from .rule_type_definitions.aggregation_rules import MetricAggregationRule, PercentageMatchRule
+from .rule_type_definitions.cardinality_rule import CardinalityRule
+from .rule_type_definitions.compare_rules import BlacklistRule, WhitelistRule, ChangeRule
+from .rule_type_definitions.frequency_rules import FrequencyRule, FlatlineRule
+from .rule_type_definitions.new_terms_rule import NewTermsRule
+from .rule_type_definitions.spike_rule import SpikeRule
 
 
 class DateTimeEncoder(json.JSONEncoder):
@@ -54,7 +54,7 @@ class BasicMatchString(object):
 
     def _add_custom_alert_text(self):
         missing = self.rule.get('alert_missing_value', '<MISSING VALUE>')
-        alert_text = unicode(self.rule.get('alert_text', ''))
+        alert_text = str(self.rule.get('alert_text', ''))
         if 'alert_text_args' in self.rule:
             alert_text_args = self.rule.get('alert_text_args')
             alert_text_values = [lookup_es_key(self.match, arg) for arg in alert_text_args]
@@ -72,7 +72,7 @@ class BasicMatchString(object):
             alert_text = alert_text.format(*alert_text_values)
         elif 'alert_text_kw' in self.rule:
             kw = {}
-            for name, kw_name in self.rule.get('alert_text_kw').items():
+            for name, kw_name in list(self.rule.get('alert_text_kw').items()):
                 val = lookup_es_key(self.match, name)
 
                 # Support referencing other top-level rule properties
@@ -90,10 +90,10 @@ class BasicMatchString(object):
         self.text += self.rule['type'].get_match_str(self.match)
 
     def _add_top_counts(self):
-        for key, counts in self.match.items():
+        for key, counts in list(self.match.items()):
             if key.startswith('top_events_'):
                 self.text += '%s:\n' % (key[11:])
-                top_events = counts.items()
+                top_events = list(counts.items())
 
                 if not top_events:
                     self.text += 'No events found.\n'
@@ -105,12 +105,12 @@ class BasicMatchString(object):
                 self.text += '\n'
 
     def _add_match_items(self):
-        match_items = self.match.items()
+        match_items = list(self.match.items())
         match_items.sort(key=lambda x: x[0])
         for key, value in match_items:
             if key.startswith('top_events_'):
                 continue
-            value_str = unicode(value)
+            value_str = str(value)
             value_str.replace('\\n', '\n')
             if type(value) in [list, dict]:
                 try:
@@ -445,7 +445,7 @@ class Alerter(object):
         # and attached to each alerters used by a rule before calling alert()
         self.pipeline = None
         self.resolve_rule_references(self.rule)
-        self.dispatch_conf = ConfigParser.ConfigParser()
+        self.dispatch_conf = configparser.RawConfigParser()
         self.dispatch_conf.read(DISPATCHER_CONF)
 
         self.sonar_uri = self.dispatch_conf.get('dispatch', 'sonarw_uri')
@@ -453,21 +453,21 @@ class Alerter(object):
 
         try:
             self.syslog_host = socket.gethostbyname(self.dispatch_conf.get('remote_syslog', 'host'))
-        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError, socket.error):
+        except (configparser.NoSectionError, configparser.NoOptionError, socket.error):
             elastalert_logger.warning('No host field set in remote_syslog section of dispatcher.conf.'
                                       ' Defaulting to {}'.format(SYSLOG_DEFAULT_HOST))
             self.syslog_host = SYSLOG_DEFAULT_HOST
 
         try:
             self.syslog_port = int(self.dispatch_conf.get('remote_syslog', 'port'))
-        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+        except (configparser.NoSectionError, configparser.NoOptionError):
             elastalert_logger.warning('No port field set in remote_syslog section of dispatcher.conf.'
                                       ' Defaulting to {}'.format(SYSLOG_DEFAULT_PORT))
             self.syslog_port = SYSLOG_DEFAULT_PORT
 
         try:
             self.syslog_protocol = self.dispatch_conf.get('remote_syslog', 'protocol').lower()
-        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+        except (configparser.NoSectionError, configparser.NoOptionError):
             elastalert_logger.warning('No protocol field set in remote_syslog section of dispatcher.conf.'
                                       ' Defaulting to {}'.format(SYSLOG_DEFAULT_PROTOCOL))
             self.syslog_protocol = SYSLOG_DEFAULT_PROTOCOL
@@ -497,14 +497,14 @@ class Alerter(object):
                     root[i] = self.resolve_rule_reference(item)
         elif type(root) == dict:
             # Make a copy since we may be modifying the contents of the structure we're walking
-            for key, value in root.copy().iteritems():
+            for key, value in root.copy().items():
                 if type(value) == dict or type(value) == list:
                     self.resolve_rule_references(root[key])
                 else:
                     root[key] = self.resolve_rule_reference(value)
 
     def resolve_rule_reference(self, value):
-        strValue = unicode(value)
+        strValue = str(value)
         if strValue.startswith('$') and strValue.endswith('$') and strValue[1:-1] in self.rule:
             if type(value) == int:
                 return int(self.rule[strValue[1:-1]])
@@ -536,7 +536,7 @@ class Alerter(object):
         return self.create_default_title(matches)
 
     def create_custom_title(self, matches):
-        alert_subject = unicode(self.rule['alert_subject'])
+        alert_subject = str(self.rule['alert_subject'])
 
         if 'alert_subject_args' in self.rule:
             alert_subject_args = self.rule['alert_subject_args']
@@ -561,7 +561,7 @@ class Alerter(object):
         body = self.get_aggregation_summary_text(matches)
         if self.rule.get('alert_text_type') != 'aggregation_summary_only':
             for match in matches:
-                body += unicode(BasicMatchString(self.rule, match))
+                body += str(BasicMatchString(self.rule, match))
                 # Separate text of aggregated alerts with dashes
                 if len(matches) > 1:
                     body += '\n----------------------------------------\n'
@@ -591,16 +591,16 @@ class Alerter(object):
 
             # Maintain an aggregate count for each unique key encountered in the aggregation period
             for match in matches:
-                key_tuple = tuple([unicode(lookup_es_key(match, key)) for key in summary_table_fields])
+                key_tuple = tuple([str(lookup_es_key(match, key)) for key in summary_table_fields])
                 if key_tuple not in match_aggregation:
                     match_aggregation[key_tuple] = 1
                 else:
                     match_aggregation[key_tuple] = match_aggregation[key_tuple] + 1
-            for keys, count in match_aggregation.iteritems():
+            for keys, count in match_aggregation.items():
                 text_table.add_row([key for key in keys] + [count])
             text += text_table.draw() + '\n\n'
             text += self.rule.get('summary_prefix', '')
-        return unicode(text)
+        return str(text)
 
     def create_default_title(self, matches):
         return self.rule['name']
@@ -635,7 +635,7 @@ class DebugAlerter(Alerter):
             else:
                 elastalert_logger.info('Alert for %s at %s:' % (self.rule['name'],
                                                                 lookup_es_key(match, self.rule['timestamp_field'])))
-            elastalert_logger.info(unicode(BasicMatchString(self.rule, match)))
+            elastalert_logger.info(str(BasicMatchString(self.rule, match)))
 
     def get_info(self):
         return {'type': 'debug'}
@@ -668,7 +668,7 @@ class SonarDispatcherAlerter(Alerter):
     def __init__(self, *args):
         super(SonarDispatcherAlerter, self).__init__(*args)
         # Convert email to a list if it isn't already
-        if isinstance(self.rule['email'], basestring):
+        if isinstance(self.rule['email'], str):
             self.rule['email'] = [self.rule['email']]
         self.es_client = elasticsearch_client(self.rule)
 
@@ -732,15 +732,15 @@ class EmailAlerter(Alerter):
         self.smtp_key_file = self.rule.get('smtp_key_file')
         self.smtp_cert_file = self.rule.get('smtp_cert_file')
         # Convert email to a list if it isn't already
-        if isinstance(self.rule['email'], basestring):
+        if isinstance(self.rule['email'], str):
             self.rule['email'] = [self.rule['email']]
         # If there is a cc then also convert it a list if it isn't
         cc = self.rule.get('cc')
-        if cc and isinstance(cc, basestring):
+        if cc and isinstance(cc, str):
             self.rule['cc'] = [self.rule['cc']]
         # If there is a bcc then also convert it to a list if it isn't
         bcc = self.rule.get('bcc')
-        if bcc and isinstance(bcc, basestring):
+        if bcc and isinstance(bcc, str):
             self.rule['bcc'] = [self.rule['bcc']]
         add_suffix = self.rule.get('email_add_domain')
         if add_suffix and not add_suffix.startswith('@'):
@@ -757,7 +757,7 @@ class EmailAlerter(Alerter):
         to_addr = self.rule['email']
         if 'email_from_field' in self.rule:
             recipient = lookup_es_key(matches[0], self.rule['email_from_field'])
-            if isinstance(recipient, basestring):
+            if isinstance(recipient, str):
                 if '@' in recipient:
                     to_addr = [recipient]
                 elif 'email_add_domain' in self.rule:

@@ -1,5 +1,5 @@
 import datetime
-import ConfigParser
+import configparser
 
 from elastalert.constants import DISPATCHER_CONF, NEW_TERM_DB, NEW_TERM_COLL
 from elastalert.rule_type_definitions.ruletypes import RuleType
@@ -16,7 +16,7 @@ class NewTermsRule(RuleType):
         self.agg_key = None
         self.rules['aggregation_query_element'] = self.generate_aggregation_query(self.rules['query_key'])
 
-        conf = ConfigParser.ConfigParser()
+        conf = configparser.ConfigParser()
         conf.read(DISPATCHER_CONF)
         uri = conf.get('dispatch', 'sonarw_uri')
 
@@ -37,7 +37,7 @@ class NewTermsRule(RuleType):
         return agg_query
 
     def add_aggregation_data(self, payload):
-        for timestamp, payload_data in payload.iteritems():
+        for timestamp, payload_data in payload.items():
             self.check_matches(timestamp, payload_data)
 
     def check_matches(self, timestamp, aggregation_data, add_match=True):

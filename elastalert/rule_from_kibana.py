@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import
-from __future__ import print_function
+
+
 
 import json
 
@@ -13,10 +13,10 @@ from elastalert.sonar_connection import SonarConnectionUrllib3HttpConnection
 
 
 def main():
-    es_host = raw_input("Elasticsearch host: ")
-    es_port = raw_input("Elasticsearch port: ")
-    db_name = raw_input("Dashboard name: ")
-    send_get_body_as = raw_input("Method for querying Elasticsearch[GET]: ") or 'GET'
+    es_host = input("Elasticsearch host: ")
+    es_port = input("Elasticsearch port: ")
+    db_name = input("Dashboard name: ")
+    send_get_body_as = input("Method for querying Elasticsearch[GET]: ") or 'GET'
     es = Elasticsearch(
         connection_class=SonarConnectionUrllib3HttpConnection,  # Sonar: Insert sonarg-user in header.
         host=es_host,

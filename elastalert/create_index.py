@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from __future__ import print_function
+
 
 import argparse
 import getpass
@@ -9,8 +9,8 @@ import time
 
 import elasticsearch.helpers
 import yaml
-from auth import Auth
-from sonar_connection import SonarConnectionRequestsHttpConnection
+from .auth import Auth
+from .sonar_connection import SonarConnectionRequestsHttpConnection
 from elasticsearch.client import Elasticsearch
 from elasticsearch.client import IndicesClient
 from elasticsearch.exceptions import NotFoundError
@@ -63,7 +63,7 @@ def main():
 
     if filename:
         with open(filename) as config_file:
-            data = yaml.load(config_file)
+            data = yaml.load(config_file, Loader=yaml.UnsafeLoader)
         host = args.host if args.host else data.get('es_host')
         port = args.port if args.port else data.get('es_port')
         username = args.username if args.username else data.get('es_username')
@@ -82,29 +82,29 @@ def main():
         username = args.username if args.username else None
         password = args.password if args.password else None
         aws_region = args.aws_region
-        host = args.host if args.host else raw_input('Enter Elasticsearch host: ')
-        port = args.port if args.port else int(raw_input('Enter Elasticsearch port: '))
+        host = args.host if args.host else input('Enter Elasticsearch host: ')
+        port = args.port if args.port else int(input('Enter Elasticsearch port: '))
         use_ssl = (args.ssl if args.ssl is not None
-                   else raw_input('Use SSL? t/f: ').lower() in ('t', 'true'))
+                   else input('Use SSL? t/f: ').lower() in ('t', 'true'))
         if use_ssl:
             verify_certs = (args.verify_certs if args.verify_certs is not None
-                            else raw_input('Verify TLS certificates? t/f: ').lower() not in ('f', 'false'))
+                            else input('Verify TLS certificates? t/f: ').lower() not in ('f', 'false'))
         else:
             verify_certs = True
         if args.no_auth is None and username is None:
-            username = raw_input('Enter optional basic-auth username (or leave blank): ')
+            username = input('Enter optional basic-auth username (or leave blank): ')
             password = getpass.getpass('Enter optional basic-auth password (or leave blank): ')
         url_prefix = (args.url_prefix if args.url_prefix is not None
-                      else raw_input('Enter optional Elasticsearch URL prefix (prepends a string to the URL of every request): '))
+                      else input('Enter optional Elasticsearch URL prefix (prepends a string to the URL of every request): '))
         send_get_body_as = args.send_get_body_as
         ca_certs = None
         client_cert = None
         client_key = None
-        index = args.index if args.index is not None else raw_input('New index name? (Default elastalert_status) ')
+        index = args.index if args.index is not None else input('New index name? (Default elastalert_status) ')
         if not index:
             index = 'elastalert_status'
         old_index = (args.old_index if args.old_index is not None
-                     else raw_input('Name of existing index to copy? (Default None) '))
+                     else input('Name of existing index to copy? (Default None) '))
 
     timeout = args.timeout
     auth = Auth()
