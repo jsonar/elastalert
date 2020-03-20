@@ -704,7 +704,7 @@ class ElastAlerter():
         buffer_time = rule.get('buffer_time', self.buffer_time)
         if rule.get('query_delay'):
             buffer_time += rule['query_delay']
-        for _id, timestamp in rule['processed_hits'].items():
+        for _id, timestamp in list(rule['processed_hits'].items()):
             if now - timestamp > buffer_time:
                 remove.append(_id)
         list(map(rule['processed_hits'].pop, remove))
@@ -1188,7 +1188,7 @@ class ElastAlerter():
         new_rule_hashes = get_rule_hashes(self.conf, self.args.rule)
 
         # Check each current rule for changes
-        for rule_file, hash_value in self.rule_hashes.items():
+        for rule_file, hash_value in list(self.rule_hashes.items()):
             if rule_file not in new_rule_hashes:
                 # Rule file was deleted
                 elastalert_logger.info('Rule file %s not found, stopping rule execution' % (rule_file))
@@ -1251,7 +1251,7 @@ class ElastAlerter():
                     self.handle_error('Could not load rule %s: %s' % (rule_file, e))
                     self.send_notification_email(exception=e, rule_file=rule_file)
                     continue
-                except e:
+                except BaseException as e:
                     # Sonar: This also occurs when saved_source_id is associated with a deleted saved source.
                     #   Either way don't stop when parsing a rule failed.
                     self.handle_error('Error parsing {0}. Skipping rule. {1}'.format(rule_file, e))
@@ -1766,7 +1766,7 @@ class ElastAlerter():
                     self.alert([match_body], rule, alert_time=alert_time, retried=retried)
 
                 if rule['current_aggregate_id']:
-                    for qk, agg_id in rule['current_aggregate_id'].items():
+                    for qk, agg_id in list(rule['current_aggregate_id'].items()):
                         if agg_id == _id:
                             rule['current_aggregate_id'].pop(qk)
                             break
@@ -1782,7 +1782,7 @@ class ElastAlerter():
         # Send in memory aggregated alerts
         for rule in self.rules:
             if rule['agg_matches']:
-                for aggregation_key_value, aggregate_alert_time in rule['aggregate_alert_time'].items():
+                for aggregation_key_value, aggregate_alert_time in list(rule['aggregate_alert_time'].items()):
                     if ts_now() > aggregate_alert_time:
                         alertable_matches = [
                             agg_match

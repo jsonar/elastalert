@@ -28,7 +28,7 @@ class FrequencyRule(RuleType):
         self.check_for_match('all')
 
     def add_terms_data(self, terms):
-        for timestamp, buckets in terms.items():
+        for timestamp, buckets in list(terms.items()):
             for bucket in buckets:
                 event = ({self.ts_field: timestamp,
                           self.rules['query_key']: bucket['key']}, bucket['doc_count'])
@@ -73,7 +73,7 @@ class FrequencyRule(RuleType):
     def garbage_collect(self, timestamp):
         """ Remove all occurrence data that is beyond the timeframe away """
         stale_keys = []
-        for key, window in self.occurrences.items():
+        for key, window in list(self.occurrences.items()):
             if timestamp - lookup_es_key(window.data[-1][0], self.ts_field) > self.rules['timeframe']:
                 stale_keys.append(key)
         list(map(self.occurrences.pop, stale_keys))

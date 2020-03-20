@@ -37,7 +37,7 @@ class NewTermsRule(RuleType):
         return agg_query
 
     def add_aggregation_data(self, payload):
-        for timestamp, payload_data in payload.items():
+        for timestamp, payload_data in list(payload.items()):
             self.check_matches(timestamp, payload_data)
 
     def check_matches(self, timestamp, aggregation_data, add_match=True):

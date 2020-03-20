@@ -497,7 +497,7 @@ class Alerter(object):
                     root[i] = self.resolve_rule_reference(item)
         elif type(root) == dict:
             # Make a copy since we may be modifying the contents of the structure we're walking
-            for key, value in root.copy().items():
+            for key, value in list(root.copy().items()):
                 if type(value) == dict or type(value) == list:
                     self.resolve_rule_references(root[key])
                 else:
@@ -596,7 +596,7 @@ class Alerter(object):
                     match_aggregation[key_tuple] = 1
                 else:
                     match_aggregation[key_tuple] = match_aggregation[key_tuple] + 1
-            for keys, count in match_aggregation.items():
+            for keys, count in list(match_aggregation.items()):
                 text_table.add_row([key for key in keys] + [count])
             text += text_table.draw() + '\n\n'
             text += self.rule.get('summary_prefix', '')
