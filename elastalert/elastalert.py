@@ -34,7 +34,6 @@ from .enhancements import DropMatchException
 from .rule_type_definitions.frequency_rules import FlatlineRule
 from .rule_type_definitions.compare_rules import BlacklistRule, WhitelistRule, ChangeRule
 from .rule_type_definitions.new_terms_rule import NewTermsRule
-from .rule_type_definitions.cardinality_rule import CardinalityRule
 from .rule_type_definitions.spike_rule import SpikeRule
 from .saved_source_factory import SavedSourceFactory
 from .util import add_raw_postfix
