@@ -4,8 +4,15 @@ import os
 from setuptools import find_packages
 from setuptools import setup
 
+try: # for pip >= 10
+    from pip._internal.req import parse_requirements
+except ImportError: # for pip <= 9.0.3
+    from pip.req import parse_requirements
+
 
 base_dir = os.path.dirname(__file__)
+install_requires = parse_requirements(os.path.join(base_dir, '../../../requirements.txt'), session=False)
+install_requires_list = [str(ir.req) for ir in install_requires]
 setup(
     name='elastalert',
     version='0.1.35',
@@ -26,27 +33,5 @@ setup(
                             'elastalert=elastalert.elastalert:main']},
     packages=find_packages(),
     package_data={'elastalert': ['schema.yaml']},
-    install_requires=[
-        'aws-requests-auth>=0.3.0',
-        'APScheduler>=3.5.1',
-        'blist>=1.3.6',
-        'boto3>=1.4.4',
-        'configparser>=3.5.0',
-        'croniter>=0.3.16',
-        'elasticsearch==7.0.0',
-        'envparse>=0.2.0',
-        'exotel>=0.1.3',
-        'jira>=1.0.10,<1.0.15',
-        'jsonschema>=2.6.0,<3.0.0',
-        'mock>=2.0.0',
-        'pymongo==3.6.1',
-        'PyStaticConfiguration>=0.10.3',
-        'python-dateutil>=2.6.0,<2.7.0',
-        'PyYAML>=3.12',
-        'requests>=2.10.0',
-        'stomp.py>=4.1.17',
-        'texttable>=0.8.8',
-        'twilio>=6.0.0,<6.1',
-        'six>=1.11.0'
-    ]
+    install_requires=install_requires_list
 )
