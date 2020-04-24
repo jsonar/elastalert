@@ -6,39 +6,39 @@ import logging
 import os
 import sys
 
-import alerts
-import enhancements
+from . import alerts
+from . import enhancements
 import jsonschema
 
 import yaml
 import yaml.scanner
 from envparse import Env
-from opsgenie import OpsGenieAlerter
+from .opsgenie import OpsGenieAlerter
 from staticconf.loader import yaml_loader
-from saved_source_factory import SavedSourceFactory
+from .saved_source_factory import SavedSourceFactory
 
-from rule_type_definitions import aggregation_rules
-from rule_type_definitions import any_rule
-from rule_type_definitions import cardinality_rule
-from rule_type_definitions import compare_rules
-from rule_type_definitions import frequency_rules
-from rule_type_definitions import new_terms_rule
-from rule_type_definitions import spike_rule
-from rule_type_definitions import ruletypes
+from .rule_type_definitions import aggregation_rules
+from .rule_type_definitions import any_rule
+from .rule_type_definitions import cardinality_rule
+from .rule_type_definitions import compare_rules
+from .rule_type_definitions import frequency_rules
+from .rule_type_definitions import new_terms_rule
+from .rule_type_definitions import spike_rule
+from .rule_type_definitions import ruletypes
 
-from util import dt_to_ts
-from util import dt_to_ts_with_format
-from util import dt_to_unix
-from util import dt_to_unixms
-from util import EAException
-from util import ts_to_dt
-from util import ts_to_dt_with_format
-from util import unix_to_dt
-from util import unixms_to_dt
+from .util import dt_to_ts
+from .util import dt_to_ts_with_format
+from .util import dt_to_unix
+from .util import dt_to_unixms
+from .util import EAException
+from .util import ts_to_dt
+from .util import ts_to_dt_with_format
+from .util import unix_to_dt
+from .util import unixms_to_dt
 
 
 # schema for rule yaml
-rule_schema = jsonschema.Draft4Validator(yaml.load(open(os.path.join(os.path.dirname(__file__), 'schema.yaml')), Loader=yaml.SafeLoader))
+rule_schema = jsonschema.Draft4Validator(yaml.load(open(os.path.join(os.path.dirname(__file__), 'schema.yaml')), Loader=yaml.UnsafeLoader))
 
 # Required global (config.yaml) and local (rule.yaml)  configuration options
 required_globals = frozenset(['run_every', 'rules_folder', 'es_host', 'es_port', 'writeback_index', 'buffer_time'])
@@ -100,7 +100,7 @@ def get_module(module_name):
         base_module = __import__(module_path, globals(), locals(), [module_class])
         module = getattr(base_module, module_class)
     except (ImportError, AttributeError, ValueError) as e:
-        raise EAException("Could not import module %s: %s" % (module_name, e)), None, sys.exc_info()[2]
+        raise EAException("Could not import module %s: %s" % (module_name, e)).with_traceback(sys.exc_info()[2])
     return module
 
 
@@ -195,7 +195,7 @@ def load_options(rule, conf, filename, args=None):
         raise EAException('Invalid time format used: %s' % (e))
 
     # Set defaults, copy defaults from config.yaml
-    for key, val in base_config.items():
+    for key, val in list(base_config.items()):
         rule.setdefault(key, val)
     rule.setdefault('name', os.path.splitext(filename)[0])
     rule.setdefault('realert', datetime.timedelta(seconds=0))
@@ -258,8 +258,8 @@ def load_options(rule, conf, filename, args=None):
     rule.setdefault('hipchat_ignore_ssl_errors', False)
 
     # Make sure we have required options
-    if required_locals - frozenset(rule.keys()):
-        raise EAException('Missing required option(s): %s' % (', '.join(required_locals - frozenset(rule.keys()))))
+    if required_locals - frozenset(list(rule.keys())):
+        raise EAException('Missing required option(s): %s' % (', '.join(required_locals - frozenset(list(rule.keys())))))
 
     if 'include' in rule and type(rule['include']) != list:
         raise EAException('include option must be a list')
@@ -302,7 +302,7 @@ def load_options(rule, conf, filename, args=None):
                     es_filter = es_filter['not']
                 if 'query' in es_filter:
                     es_filter = es_filter['query']
-                if es_filter.keys()[0] not in ('term', 'query_string', 'range'):
+                if list(es_filter.keys())[0] not in ('term', 'query_string', 'range'):
                     raise EAException('generate_kibana_link is incompatible with filters other than term, query_string and range. '
                                       'Consider creating a dashboard and using use_kibana_dashboard instead.')
 
@@ -354,13 +354,13 @@ def load_modules(rule, args=None):
     # Make sure we have required alert and type options
     reqs = rule['type'].required_options
 
-    if reqs - frozenset(rule.keys()):
-        raise EAException('Missing required option(s): %s' % (', '.join(reqs - frozenset(rule.keys()))))
+    if reqs - frozenset(list(rule.keys())):
+        raise EAException('Missing required option(s): %s' % (', '.join(reqs - frozenset(list(rule.keys())))))
     # Instantiate rule
     try:
         rule['type'] = rule['type'](rule, args)
     except (KeyError, EAException) as e:
-        raise EAException('Error initializing rule %s: %s' % (rule['name'], e)), None, sys.exc_info()[2]
+        raise EAException('Error initializing rule %s: %s' % (rule['name'], e)).with_traceback(sys.exc_info()[2])
     # Instantiate alerts only if we're not in debug mode
     # In debug mode alerts are not actually sent so don't bother instantiating them
     if not args or not args.debug:
@@ -396,10 +396,10 @@ def load_alerts(rule, alert_field):
     def normalize_config(alert):
         """Alert config entries are either "alertType" or {"alertType": {"key": "data"}}.
         This function normalizes them both to the latter format. """
-        if isinstance(alert, basestring):
+        if isinstance(alert, str):
             return alert, rule
         elif isinstance(alert, dict):
-            name, config = iter(alert.items()).next()
+            name, config = next(iter(list(alert.items())))
             config_copy = copy.copy(rule)
             config_copy.update(config)  # warning, this (intentionally) mutates the rule dict
             return name, config_copy
@@ -420,12 +420,12 @@ def load_alerts(rule, alert_field):
             alert_field = [alert_field]
 
         alert_field = [normalize_config(x) for x in alert_field]
-        alert_field = sorted(alert_field, key=lambda (a, b): alerts_order.get(a, 1))
+        alert_field = sorted(alert_field, key=lambda a_b: alerts_order.get(a_b[0], 1))
         # Convert all alerts into Alerter objects
         alert_field = [create_alert(a, b) for a, b in alert_field]
 
     except (KeyError, EAException) as e:
-        raise EAException('Error initiating alert %s: %s' % (rule['alert'], e)), None, sys.exc_info()[2]
+        raise EAException('Error initiating alert %s: %s' % (rule['alert'], e)).with_traceback(sys.exc_info()[2])
 
     return alert_field
 
@@ -442,14 +442,14 @@ def load_rules(args):
     conf = yaml_loader(filename)
     use_rule = args.rule
 
-    for env_var, conf_var in env_settings.items():
+    for env_var, conf_var in list(env_settings.items()):
         val = env(env_var, None)
         if val is not None:
             conf[conf_var] = val
 
     # Make sure we have all required globals
-    if required_globals - frozenset(conf.keys()):
-        raise EAException('%s must contain %s' % (filename, ', '.join(required_globals - frozenset(conf.keys()))))
+    if required_globals - frozenset(list(conf.keys())):
+        raise EAException('%s must contain %s' % (filename, ', '.join(required_globals - frozenset(list(conf.keys())))))
 
     conf.setdefault('max_query_size', 10000)
     conf.setdefault('scroll_keepalive', '30s')
@@ -489,10 +489,10 @@ def load_rules(args):
         except EAException as e:
             logging.error('Error loading file %s: %s. Skipping rule.' % (rule_file, e))
             continue
-        except:
+        except BaseException as e:
             # Sonar: This also occurs when saved_source_id is associated with a deleted saved source.
             #   Either way don't stop when parsing a rule failed.
-            logging.error("Error parsing {0}. Skipping rule.".format(rule_file))
+            logging.error("Error parsing {0}. Skipping rule. {1}".format(rule_file, e))
             continue
 
         rules.append(rule)
@@ -514,7 +514,7 @@ def get_rulefile_hash(rule_file):
     rulefile_hash = ''
     if os.path.exists(rule_file):
         with open(rule_file) as fh:
-            rulefile_hash = hashlib.sha1(fh.read()).digest()
+            rulefile_hash = hashlib.sha1(fh.read().encode('utf-8')).digest()
         for import_rule_file in import_rules.get(rule_file, []):
             rulefile_hash += get_rulefile_hash(import_rule_file)
     return rulefile_hash

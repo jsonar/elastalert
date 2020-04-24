@@ -66,7 +66,7 @@ class CompareRule(RuleType):
                 self.add_match(event)
 
     def add_aggregation_data(self, payload):
-        for timestamp, payload_data in payload.iteritems():
+        for timestamp, payload_data in list(payload.items()):
             self.check_matches(timestamp, payload_data)
 
     def check_matches(self, timestamp, aggregation_data):

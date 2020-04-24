@@ -4,15 +4,15 @@ import datetime
 import logging
 import os
 from copy import deepcopy
-import urllib
-import urlparse
+import urllib.request, urllib.parse, urllib.error
+import urllib.parse
 
 import pymongo
 
 import dateutil.parser
 import dateutil.tz
-from auth import Auth
-from sonar_connection import SonarConnectionRequestsHttpConnection
+from .auth import Auth
+from .sonar_connection import SonarConnectionRequestsHttpConnection
 from elasticsearch.client import Elasticsearch
 from six import string_types
 
@@ -35,20 +35,20 @@ def get_sonar_connection(uri):
 
 
 def manipulate_uri(uri):
-    p = urlparse.urlparse(uri)
+    p = urllib.parse.urlparse(uri)
     if not p.password and p.query:
         password = None
-        qs = urlparse.parse_qs(p.query)
+        qs = urllib.parse.parse_qs(p.query)
         if 'certfile' in qs:
             # password is certfile, with newlines replaced by backslash n
             password = r'\n'.join([l.rstrip('\n')
                                    for l in open(qs['certfile'][0], 'r')])
             del qs['certfile']
-        uri = urlparse.urlunparse((p.scheme,
+        uri = urllib.parse.urlunparse((p.scheme,
                                    netloc_with_password(p, password),
                                    p.path,
                                    p.params,
-                                   urllib.urlencode(qs, doseq=True),
+                                   urllib.parse.urlencode(qs, doseq=True),
                                    p.fragment))
     return uri
 
@@ -58,7 +58,7 @@ def netloc_with_password(p, password):
     if p.username:
         ret += p.username
         if password:
-            ret += ':' + urllib.quote(password, safe='')
+            ret += ':' + urllib.parse.quote(password, safe='')
         ret += '@'
     ret += p.hostname
     if p.port:
@@ -431,7 +431,7 @@ def parse_deadline(value):
 
 def flatten_dict(dct, delim='.', prefix=''):
     ret = {}
-    for key, val in dct.items():
+    for key, val in list(dct.items()):
         if type(val) == dict:
             ret.update(flatten_dict(val, prefix=prefix + key + delim))
         else:
@@ -495,7 +495,7 @@ def get_filter_doc(raw_filters):
 
 
 # Declared here to avoid cyclic dependency.
-from saved_source_factory import SavedSourceFactory
+from .saved_source_factory import SavedSourceFactory
 
 
 def get_index(rule):

@@ -6,9 +6,9 @@ import json
 import re
 from copy import deepcopy
 
-from util import elastalert_logger
-from util import elasticsearch_client
-from util import get_filter_doc
+from .util import elastalert_logger
+from .util import elasticsearch_client
+from .util import get_filter_doc
 
 
 class SavedSource:

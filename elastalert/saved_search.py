@@ -1,7 +1,7 @@
 """
 @author Joey Andres <joey@jsonar.com>
 """
-from saved_source import SavedSource
+from .saved_source import SavedSource
 
 
 class SavedSearchInvalidIdError(Exception):

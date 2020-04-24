@@ -12,7 +12,7 @@ class SpikeRule(RuleType):
         self.es = elasticsearch_client(self.rules)
 
     def add_terms_data(self, terms):
-        for time, data in terms.items():
+        for time, data in list(terms.items()):
             key_dict = {item['key']: 1 for item in data}
             missing_keys = [{'key': key, 'doc_count': 0} for key in self.ref_data if not key_dict.get(key)]
             data.extend(missing_keys)
@@ -22,7 +22,7 @@ class SpikeRule(RuleType):
 
     def add_count_data(self, data):
         """ Add count data to the rule. Data should be of the form {ts: count}. """
-        for time, count in data.items():
+        for time, count in list(data.items()):
             self.check_matches(None, count, time)
         self.ref_data = None
 

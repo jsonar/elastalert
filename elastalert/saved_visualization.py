@@ -3,7 +3,7 @@
 """
 import json
 
-from saved_source import SavedSource
+from .saved_source import SavedSource
 
 
 class SavedVisualizationInvalidIdError(Exception):

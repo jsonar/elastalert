@@ -3,9 +3,9 @@
 """
 import json
 import datetime
-from util import elasticsearch_client
-from saved_search import SavedSearch
-from saved_visualization import SavedVisualization
+from .util import elasticsearch_client
+from .saved_search import SavedSearch
+from .saved_visualization import SavedVisualization
 
 
 class SavedSourceFactory:

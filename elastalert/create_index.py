@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from __future__ import print_function
+
 
 import argparse
 import getpass
@@ -9,8 +9,8 @@ import time
 
 import elasticsearch.helpers
 import yaml
-from auth import Auth
-from sonar_connection import SonarConnectionRequestsHttpConnection
+from .auth import Auth
+from .sonar_connection import SonarConnectionRequestsHttpConnection
 from elasticsearch.client import Elasticsearch
 from elasticsearch.client import IndicesClient
 from elasticsearch.exceptions import NotFoundError
@@ -63,7 +63,7 @@ def main():
 
     if filename:
         with open(filename) as config_file:
-            data = yaml.load(config_file, Loader=yaml.SafeLoader)
+            data = yaml.load(config_file, Loader=yaml.UnsafeLoader)
         host = args.host if args.host else data.get('es_host')
         port = args.port if args.port else data.get('es_port')
         username = args.username if args.username else data.get('es_username')
@@ -82,29 +82,29 @@ def main():
         username = args.username if args.username else None
         password = args.password if args.password else None
         aws_region = args.aws_region
-        host = args.host if args.host else raw_input('Enter Elasticsearch host: ')
-        port = args.port if args.port else int(raw_input('Enter Elasticsearch port: '))
+        host = args.host if args.host else eval(input('Enter Elasticsearch host: '))
+        port = args.port if args.port else int(eval(input('Enter Elasticsearch port: ')))
         use_ssl = (args.ssl if args.ssl is not None
-                   else raw_input('Use SSL? t/f: ').lower() in ('t', 'true'))
+                   else input('Use SSL? t/f: ').lower() in ('t', 'true'))
         if use_ssl:
             verify_certs = (args.verify_certs if args.verify_certs is not None
-                            else raw_input('Verify TLS certificates? t/f: ').lower() not in ('f', 'false'))
+                            else input('Verify TLS certificates? t/f: ').lower() not in ('f', 'false'))
         else:
             verify_certs = True
         if args.no_auth is None and username is None:
-            username = raw_input('Enter optional basic-auth username (or leave blank): ')
+            username = eval(input('Enter optional basic-auth username (or leave blank): '))
             password = getpass.getpass('Enter optional basic-auth password (or leave blank): ')
         url_prefix = (args.url_prefix if args.url_prefix is not None
-                      else raw_input('Enter optional Elasticsearch URL prefix (prepends a string to the URL of every request): '))
+                      else eval(input('Enter optional Elasticsearch URL prefix (prepends a string to the URL of every request): ')))
         send_get_body_as = args.send_get_body_as
         ca_certs = None
         client_cert = None
         client_key = None
-        index = args.index if args.index is not None else raw_input('New index name? (Default elastalert_status) ')
+        index = args.index if args.index is not None else eval(input('New index name? (Default elastalert_status) '))
         if not index:
             index = 'elastalert_status'
         old_index = (args.old_index if args.old_index is not None
-                     else raw_input('Name of existing index to copy? (Default None) '))
+                     else eval(input('Name of existing index to copy? (Default None) ')))
 
     timeout = args.timeout
     auth = Auth()
@@ -128,7 +128,7 @@ def main():
         client_key=client_key)
 
     esversion = es.info()["version"]["number"]
-    print("Elastic Version:" + esversion.split(".")[0])
+    print(("Elastic Version:" + esversion.split(".")[0]))
     elasticversion = int(esversion.split(".")[0])
 
     if(elasticversion > 5):
@@ -136,7 +136,7 @@ def main():
     else:
         mapping = {'index': 'not_analyzed', 'type': 'string'}
 
-    print("Mapping used for string:" + str(mapping))
+    print(("Mapping used for string:" + str(mapping)))
 
     silence_mapping = {
         'silence': {
@@ -222,7 +222,7 @@ def main():
     es_index = IndicesClient(es)
     if not args.recreate:
         if es_index.exists(index):
-            print('Index ' + index + ' already exists. Skipping index creation.')
+            print(('Index ' + index + ' already exists. Skipping index creation.'))
             return None
 
     # (Re-)Create indices.
@@ -240,7 +240,7 @@ def main():
         )
     for index_name in index_names:
         if es_index.exists(index_name):
-            print('Deleting index ' + index_name + '.')
+            print(('Deleting index ' + index_name + '.'))
             try:
                 es_index.delete(index_name)
             except NotFoundError:
@@ -261,17 +261,17 @@ def main():
         es.indices.put_mapping(index=index + '_silence', doc_type='silence', body=silence_mapping)
         es.indices.put_mapping(index=index + '_error', doc_type='elastalert_error', body=error_mapping)
         es.indices.put_mapping(index=index + '_past', doc_type='past_elastalert', body=past_mapping)
-        print('New index %s created' % index)
+        print(('New index %s created' % index))
     else:
         es.indices.put_mapping(index=index, doc_type='elastalert', body=es_mapping)
         es.indices.put_mapping(index=index, doc_type='elastalert_status', body=ess_mapping)
         es.indices.put_mapping(index=index, doc_type='silence', body=silence_mapping)
         es.indices.put_mapping(index=index, doc_type='elastalert_error', body=error_mapping)
         es.indices.put_mapping(index=index, doc_type='past_elastalert', body=past_mapping)
-        print('New index %s created' % index)
+        print(('New index %s created' % index))
 
     if old_index:
-        print("Copying all data from old index '{0}' to new index '{1}'".format(old_index, index))
+        print(("Copying all data from old index '{0}' to new index '{1}'".format(old_index, index)))
         # Use the defaults for chunk_size, scroll, scan_kwargs, and bulk_kwargs
         elasticsearch.helpers.reindex(es, old_index, index)
 

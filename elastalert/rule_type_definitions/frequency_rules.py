@@ -21,14 +21,14 @@ class FrequencyRule(RuleType):
         if len(data) > 1:
             raise EAException('add_count_data can only accept one count at a time')
 
-        (ts, count), = data.items()
+        (ts, count), = list(data.items())
 
         event = ({self.ts_field: ts}, count)
         self.occurrences.setdefault('all', EventWindow(self.rules['timeframe'], getTimestamp=self.get_ts)).append(event)
         self.check_for_match('all')
 
     def add_terms_data(self, terms):
-        for timestamp, buckets in terms.iteritems():
+        for timestamp, buckets in list(terms.items()):
             for bucket in buckets:
                 event = ({self.ts_field: timestamp,
                           self.rules['query_key']: bucket['key']}, bucket['doc_count'])
@@ -73,10 +73,10 @@ class FrequencyRule(RuleType):
     def garbage_collect(self, timestamp):
         """ Remove all occurrence data that is beyond the timeframe away """
         stale_keys = []
-        for key, window in self.occurrences.iteritems():
+        for key, window in list(self.occurrences.items()):
             if timestamp - lookup_es_key(window.data[-1][0], self.ts_field) > self.rules['timeframe']:
                 stale_keys.append(key)
-        map(self.occurrences.pop, stale_keys)
+        list(map(self.occurrences.pop, stale_keys))
 
     def get_match_str(self, match):
         lt = self.rules.get('use_local_time')
@@ -127,7 +127,7 @@ class FlatlineRule(FrequencyRule):
         # We add an event with a count of zero to the EventWindow for each key. This will cause the EventWindow
         # to remove events that occurred more than one `timeframe` ago, and call onRemoved on them.
         default = ['all'] if 'query_key' not in self.rules else []
-        for key in self.occurrences.keys() or default:
+        for key in list(self.occurrences.keys()) or default:
             self.occurrences.setdefault(
                 key,
                 EventWindow(self.rules['timeframe'], getTimestamp=self.get_ts)
