@@ -88,7 +88,7 @@ class SavedSource:
         :return: elasticsearch query associated with the Saved Search.
         """
         raw_query = deepcopy(self._get_search_source()['query'])
-        if 'query' not in raw_query or len(raw_query['query']) is 0:
+        if 'query' not in raw_query or len(raw_query['query']) == 0:
             return None
 
         del raw_query['language']   # Clean up unnecessary fields.

@@ -1,7 +1,8 @@
 import os
 
 SONARK_CONF = os.environ.get('SONARK_CONFIG_PATH')
-DISPATCHER_CONF = '/opt/sonarfinder/sonarFinder/dispatcher.conf'
+JSONAR_LOCALDIR = os.environ.get('JSONAR_LOCALDIR')
+DISPATCHER_CONF = JSONAR_LOCALDIR + '/dispatcher/dispatcher.conf'
 SYSLOG_DEFAULT_HOST = '127.0.0.1'
 SYSLOG_DEFAULT_PORT = 514
 SYSLOG_DEFAULT_PROTOCOL = 'udp'

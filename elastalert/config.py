@@ -5,6 +5,7 @@ import hashlib
 import logging
 import os
 import sys
+import traceback
 
 from . import alerts
 from . import enhancements
@@ -492,6 +493,7 @@ def load_rules(args):
         except BaseException as e:
             # Sonar: This also occurs when saved_source_id is associated with a deleted saved source.
             #   Either way don't stop when parsing a rule failed.
+            logging.error(traceback.format_exc())
             logging.error("Error parsing {0}. Skipping rule. {1}".format(rule_file, e))
             continue
 

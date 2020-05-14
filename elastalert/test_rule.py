@@ -17,15 +17,14 @@ import argparse
 import mock
 import yaml
 
-import elastalert.config
-from elastalert.config import load_modules
-from elastalert.config import load_options
-from elastalert.config import load_rule_yaml
-from elastalert.elastalert import ElastAlerter
-from elastalert.util import elasticsearch_client
-from elastalert.util import lookup_es_key
-from elastalert.util import ts_now
-from elastalert.util import ts_to_dt
+from .config import load_modules
+from .config import load_options
+from .config import load_rule_yaml
+from .elastalert import ElastAlerter
+from .util import elasticsearch_client
+from .util import lookup_es_key
+from .util import ts_now
+from .util import ts_to_dt
 
 logging.getLogger().setLevel(logging.INFO)
 logging.getLogger('elasticsearch').setLevel(logging.WARNING)
@@ -35,7 +34,7 @@ def print_terms(terms, parent):
     """ Prints a list of flattened dictionary keys """
     for term in terms:
         if type(terms[term]) != dict:
-            print('\t' + parent + term)
+            print(('\t' + parent + term))
         else:
             print_terms(terms[term], parent + term + '.')
 
@@ -56,8 +55,8 @@ class MockElastAlerter(object):
         try:
             ElastAlerter.modify_rule_for_ES5(conf)
         except Exception as e:
-            print("Error connecting to ElasticSearch:", file=sys.stderr)
-            print(repr(e)[:2048], file=sys.stderr)
+            sys.stderr.write("Error connecting to ElasticSearch:")
+            sys.stderr.write(repr(e)[:2048])
             if args.stop_error:
                 exit(1)
             return None
@@ -79,8 +78,8 @@ class MockElastAlerter(object):
         try:
             res = es_client.search(index, size=1, body=query, ignore_unavailable=True)
         except Exception as e:
-            print("Error running your filter:", file=sys.stderr)
-            print(repr(e)[:2048], file=sys.stderr)
+            sys.stderr.write("Error running your filter:")
+            sys.stderr.write(repr(e)[:2048])
             if args.stop_error:
                 exit(1)
             return None
@@ -104,14 +103,14 @@ class MockElastAlerter(object):
         try:
             res = es_client.count(index, body=count_query, ignore_unavailable=True)
         except Exception as e:
-            print("Error querying Elasticsearch:", file=sys.stderr)
-            print(repr(e)[:2048], file=sys.stderr)
+            sys.stderr.write("Error querying Elasticsearch:")
+            sys.stderr.write(repr(e)[:2048])
             if args.stop_error:
                 exit(1)
             return None
 
         num_hits = res['count']
-        print("Got %s hits from the last %s day%s" % (num_hits, args.days, 's' if args.days > 1 else ''))
+        print(("Got %s hits from the last %s day%s" % (num_hits, args.days, 's' if args.days > 1 else '')))
         print("\nAvailable terms in first hit:")
         print_terms(terms, '')
 
@@ -119,20 +118,20 @@ class MockElastAlerter(object):
         pk = conf.get('primary_key')
         ck = conf.get('compare_key')
         if pk and not lookup_es_key(terms, pk):
-            print("Warning: primary key %s is either missing or null!", file=sys.stderr)
+            sys.stderr.write("Warning: primary key %s is either missing or null!")
         if ck and not lookup_es_key(terms, ck):
-            print("Warning: compare key %s is either missing or null!", file=sys.stderr)
+            sys.stderr.write("Warning: compare key %s is either missing or null!")
 
         include = conf.get('include')
         if include:
             for term in include:
                 if not lookup_es_key(terms, term) and '*' not in term:
-                    print("Included term %s may be missing or null" % (term), file=sys.stderr)
+                    sys.stderr.write("Included term %s may be missing or null" % (term))
 
         for term in conf.get('top_count_keys', []):
             # If the index starts with 'logstash', fields with .raw will be available but won't in _source
             if term not in terms and not (term.endswith('.raw') and term[:-4] in terms and index.startswith('logstash')):
-                print("top_count_key %s may be missing" % (term), file=sys.stderr)
+                sys.stderr.write("top_count_key %s may be missing" % (term))
         print('')  # Newline
 
         # Download up to max_query_size (defaults to 10,000) documents to save
@@ -140,13 +139,13 @@ class MockElastAlerter(object):
             try:
                 res = es_client.search(index, size=args.max_query_size, body=query, ignore_unavailable=True)
             except Exception as e:
-                print("Error running your filter:", file=sys.stderr)
-                print(repr(e)[:2048], file=sys.stderr)
+                sys.stderr.write("Error running your filter:")
+                sys.stderr.write(repr(e)[:2048])
                 if args.stop_error:
                     exit(1)
                 return None
             num_hits = len(res['hits']['hits'])
-            print("Downloaded %s documents to save" % (num_hits))
+            print(("Downloaded %s documents to save" % (num_hits)))
             return res['hits']['hits']
 
     def mock_count(self, rule, start, end, index):
@@ -227,7 +226,7 @@ class MockElastAlerter(object):
                 endtime = self.data[-1][timestamp_field]
                 endtime = ts_to_dt(endtime) + datetime.timedelta(seconds=1)
             except KeyError as e:
-                print("All documents must have a timestamp and _id: %s" % (e), file=sys.stderr)
+                sys.stderr.write("All documents must have a timestamp and _id: %s" % (e))
                 if args.stop_error:
                     exit(1)
                 return None
@@ -294,7 +293,7 @@ class MockElastAlerter(object):
                 print("\nWould have written the following documents to writeback index (default is elastalert_status):\n")
                 errors = False
                 for call in mock_writeback.call_args_list:
-                    print("%s - %s\n" % (call[0][0], call[0][1]))
+                    print(("%s - %s\n" % (call[0][0], call[0][1])))
                     if call[0][0] == 'elastalert_error':
                         errors = True
                 if errors and args.stop_error:
@@ -340,7 +339,7 @@ class MockElastAlerter(object):
                 conf[key] = conf_default[key]
         elastalert.config.base_config = copy.deepcopy(conf)
         load_options(rules, conf, args.file)
-        print("Successfully loaded %s\n" % (rules['name']))
+        print(("Successfully loaded %s\n" % (rules['name'])))
 
         return conf
 

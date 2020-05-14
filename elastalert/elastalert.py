@@ -1329,7 +1329,7 @@ class ElastAlerter():
         """
         Add jobs associated to new rules.
         """
-        new_rules = [rule for rule in self.rules if ('state' not in rule or rule['state'] is 'new')]
+        new_rules = [rule for rule in self.rules if ('state' not in rule or rule['state'] == 'new')]
         # Schedule new rules.
         for rule in new_rules:
             rule_id = rule['rule_file']
@@ -1345,7 +1345,7 @@ class ElastAlerter():
         """
         Update jobs associated to modified rules.
         """
-        modified_rules = [rule for rule in self.rules if ('state' in rule and rule['state'] is 'modified')]
+        modified_rules = [rule for rule in self.rules if ('state' in rule and rule['state'] == 'modified')]
         # Modifying jobs associated to modified rules.
         for rule in modified_rules:
             rule_id = rule['rule_file']
