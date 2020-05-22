@@ -3,8 +3,8 @@ import copy
 import datetime
 
 from blist import sortedlist
-from elastalert.util import dt_to_ts
-from elastalert.util import new_get_event_ts
+from ..util import dt_to_ts
+from ..util import new_get_event_ts
 
 
 

@@ -17,6 +17,7 @@ import argparse
 import mock
 import yaml
 
+from . import config
 from .config import load_modules
 from .config import load_options
 from .config import load_rule_yaml
@@ -337,7 +338,7 @@ class MockElastAlerter(object):
         for key in conf_default:
             if key not in conf:
                 conf[key] = conf_default[key]
-        elastalert.config.base_config = copy.deepcopy(conf)
+        config.base_config = copy.deepcopy(conf)
         load_options(rules, conf, args.file)
         print(("Successfully loaded %s\n" % (rules['name'])))
 

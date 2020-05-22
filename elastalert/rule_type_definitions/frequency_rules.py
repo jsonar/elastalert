@@ -1,8 +1,8 @@
 import copy
 from datetime import timedelta
 
-from elastalert.rule_type_definitions.ruletypes import RuleType, EventWindow
-from elastalert.util import (EAException, new_get_event_ts, hashable, lookup_es_key, elastalert_logger, pretty_ts, dt_to_ts,
+from .ruletypes import RuleType, EventWindow
+from ..util import (EAException, new_get_event_ts, hashable, lookup_es_key, elastalert_logger, pretty_ts, dt_to_ts,
                              ts_to_dt)
 
 

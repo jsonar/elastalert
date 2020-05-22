@@ -1,7 +1,7 @@
 import copy
 
-from elastalert.rule_type_definitions.ruletypes import RuleType
-from elastalert.util import EAException, total_seconds, ts_to_dt
+from .ruletypes import RuleType
+from ..util import EAException, total_seconds, ts_to_dt
 
 
 class BaseAggregationRule(RuleType):

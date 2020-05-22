@@ -1,9 +1,9 @@
 import datetime
 import configparser
 
-from elastalert.constants import DISPATCHER_CONF, NEW_TERM_DB, NEW_TERM_COLL
-from elastalert.rule_type_definitions.ruletypes import RuleType
-from elastalert.util import (elasticsearch_client, get_sonar_connection)
+from ..constants import DISPATCHER_CONF, NEW_TERM_DB, NEW_TERM_COLL
+from .ruletypes import RuleType
+from ..util import (elasticsearch_client, get_sonar_connection)
 
 
 class NewTermsRule(RuleType):

@@ -9,7 +9,7 @@ import yaml
 from elasticsearch.client import Elasticsearch
 
 from .elastalert.kibana import filters_from_dashboard
-from .elastalert.sonar_connection import SonarConnectionUrllib3HttpConnection
+from .sonar_connection import SonarConnectionUrllib3HttpConnection
 
 
 def main():

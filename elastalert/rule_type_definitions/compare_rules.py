@@ -2,8 +2,8 @@ from datetime import timedelta
 
 from elasticsearch.exceptions import ElasticsearchException
 
-from elastalert.rule_type_definitions.ruletypes import RuleType
-from elastalert.util import elastalert_logger
+from .ruletypes import RuleType
+from ..util import elastalert_logger
 
 
 class CompareRule(RuleType):

@@ -1,4 +1,4 @@
-from elastalert.rule_type_definitions.ruletypes import RuleType
+from .ruletypes import RuleType
 
 class AnyRule(RuleType):
     """ A rule that will match on any input data """
