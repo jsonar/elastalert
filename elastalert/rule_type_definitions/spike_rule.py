@@ -1,5 +1,5 @@
-from elastalert.rule_type_definitions.ruletypes import RuleType
-from elastalert.util import (elasticsearch_client)
+from .ruletypes import RuleType
+from ..util import (elasticsearch_client)
 
 
 class SpikeRule(RuleType):

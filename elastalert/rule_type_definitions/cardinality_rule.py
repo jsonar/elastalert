@@ -1,6 +1,6 @@
 from datetime import timedelta
-from elastalert.rule_type_definitions.ruletypes import RuleType
-from elastalert.util import EAException
+from .ruletypes import RuleType
+from ..util import EAException
 
 
 class CardinalityRule(RuleType):
